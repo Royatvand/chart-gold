@@ -3,3 +3,34 @@
 @media(max-width:850px){.terminal-layout{grid-template-columns:40px minmax(0,1fr)}.right-sidebar{display:none}.chart-area{border-right:0}.quick-search{display:none}.top-separator{display:none}.publish-button{padding:7px 9px}.desktop-only{display:none!important}.chart-canvas-wrap{height:48vh;min-height:330px}.tester-layout{padding:14px 10px}.strategy-fields{grid-template-columns:repeat(2,minmax(90px,1fr))}.panel-tabs{gap:0}.panel-tab{padding:12px 7px;font-size:10px}.chart-meta{gap:8px}.chart-name{min-width:130px}.ohlc-values span:nth-child(3){display:none}}
 @media(max-width:560px){.tv-topbar{gap:7px;padding:0 8px}.mobile-menu{display:inline-flex}.tv-logo{font-size:13px;gap:5px}.logo-mark{width:24px;height:24px}.symbol-select{min-width:0;padding:6px}.top-change{display:none}.publish-button{font-size:0;gap:0;width:32px;height:30px;padding:0;justify-content:center}.publish-button svg{width:16px}.market-toolbar{padding:0 7px;gap:6px}.toolbar-action{padding:6px}.terminal-layout{grid-template-columns:36px minmax(0,1fr)}.left-tools{padding:6px 2px}.left-tool{width:30px;height:31px}.chart-meta{height:48px;padding:0 7px}.chart-name{min-width:0;flex:1}.chart-name small{max-width:155px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.ohlc-values{font-size:9px;gap:4px}.ohlc-values span:nth-child(2),.ohlc-values span:nth-child(3){display:none}.chart-meta-actions .top-icon:first-child{display:none}.chart-canvas-wrap{height:44vh;min-height:290px}.chart-status{gap:7px;padding:5px 7px;font-size:9px}.chart-status span:nth-child(2){display:none}.replay-strip{padding:8px}.replay-buttons{gap:5px}.play-control{padding:7px 8px}.replay-buttons .toolbar-action{font-size:10px}.tester-layout{gap:14px}.strategy-fields{grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}.stats-panel{grid-template-columns:repeat(2,minmax(0,1fr))}.metric{padding:12px}.metric strong{font-size:15px}.panel-tabs{padding:0 4px}.panel-tab{font-size:9px;padding:11px 6px}.app-footer{font-size:8px}.app-footer span:last-child{max-width:50%;text-align:right}.toast{bottom:12px;font-size:11px}.symbol-popover{left:8px;right:8px;top:46px}}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;transition:none!important;animation:none!important}}
+
+
+/* Large CSV import progress */
+.import-progress {
+  width: 100%;
+  margin-top: 8px;
+  display: grid;
+  gap: 8px;
+  text-align: left;
+}
+.import-progress-label {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: #b2b5be;
+  font-size: 12px;
+}
+.import-progress-label strong { color: #d1d4dc; font-variant-numeric: tabular-nums; }
+.import-progress-track {
+  width: 100%;
+  height: 5px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #2a2e39;
+}
+.import-progress-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: #2962ff;
+  transition: width 120ms linear;
+}
