@@ -303,13 +303,40 @@ function App() {
         contentType: file.type || 'application/octet-stream',
         onUploadProgress: ({ percentage }) => setBlobUploadProgress(Math.round(percentage)),
       })
-      setStoredBlob({ pathname: blob.pathname, size: file.size, url: blob.url })
+      const uploaded = { pathname: blob.pathname, size: file.size, url: blob.url }
+      setStoredBlob(uploaded)
       setCloudSummary(null); setTestResults(null)
-      setNotice(`فایل ${file.name} در فضای خصوصی ذخیره شد. حالا «Analyze full cloud CSV» را بزن تا سرور فایل را به‌صورت جریانی پردازش کند؛ محدودیت زمان اجرای سرور همچنان ممکن است روی فایل‌های بسیار بزرگ اثر بگذارد.`)
+      setCloudProcessing(true)
+      try {
+        const response = await fetch('/api/blob-process', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-upload-key': uploadKey.trim() },
+          body: JSON.stringify({ pathname: uploaded.pathname, timeframeSec: tfSec, fastPeriod: Number(fastPeriod), slowPeriod: Number(slowPeriod), rr: Number(rr), riskPct: Number(riskPct), commission: Number(commission) }),
+        })
+        const payload = await response.json() as { error?: string; candles?: Candle[]; rawCandles?: number; chartBars?: number; trades?: ClosedTrade[]; summary?: { totalTrades: number; wins: number; losses: number; netR: number; grossWin: number; grossLoss: number; profitFactor: number | null; winRate: number } }
+        if (!response.ok || !payload.candles || !payload.summary || !payload.trades) throw new Error(payload.error || 'Cloud CSV processing failed')
+        setCandles(payload.candles)
+        setFileName(file.name)
+        setVisibleCount(payload.candles.length)
+        setCloudSummary(payload.summary)
+        setTestResults(payload.trades)
+        setTrades([])
+        setDrawings([])
+        setRedo([])
+        setTesterTab('overview')
+        setBottomOpen(true)
+        setBottomTab('tester')
+        setShowImport(false)
+        setNotice(`متصل شد: ${payload.rawCandles?.toLocaleString()} کندل از فایل ${file.name} خوانده شد؛ ${payload.chartBars?.toLocaleString()} کندل در تایم‌فریم انتخابی ساخته شد.`)
+      } catch (e) {
+        setNotice(`فایل آپلود شد، اما اتصال به چارت/پردازش ناموفق بود: ${e instanceof Error ? e.message : 'خطای ناشناخته'}`)
+      } finally {
+        setCloudProcessing(false)
+      }
     } catch (e) {
       setNotice(e instanceof Error ? e.message : 'آپلود فایل ناموفق بود.')
     } finally { setBlobUploadProgress(null) }
-  }, [uploadKey])
+  }, [uploadKey, tfSec, fastPeriod, slowPeriod, rr, riskPct, commission])
   const importFile = useCallback(async (file?: File) => {
     if (!file) return
     setImportProgress(0)
