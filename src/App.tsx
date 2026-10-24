@@ -76,6 +76,7 @@ function App() {
   const [redo, setRedo] = useState<number[]>([])
   const [hideDrawings, setHideDrawings] = useState(false)
   const [indicators, setIndicators] = useState({ fast: false, slow: false })
+  const [indicatorSearch, setIndicatorSearch] = useState('')
   const [seriesVersion, setSeriesVersion] = useState(0)
   const [hoverIdx, setHoverIdx] = useState<number | null>(null)
   const [panel, setPanel] = useState<SidePanel>('watchlist')
@@ -447,11 +448,18 @@ function App() {
       </div>
       <i className="tv-sep"/>
       <div className="tv-menu-wrap" data-menu>
-        <button className="tv-btn" title="Indicators" onClick={() => toggleMenu('ind')}><Activity size={18}/><span className="tv-label">Indicators</span></button>
-        {menu === 'ind' && <div className="tv-menu wide"><div className="tv-menu-title">Indicators</div>
-          <button className="tv-item" onClick={() => setIndicators(v => ({ ...v, fast: !v.fast }))}><i className="dot" style={{ background: '#2962ff' }}/><span>SMA ({fastPeriod})</span>{indicators.fast && <Check size={14}/>}</button>
-          <button className="tv-item" onClick={() => setIndicators(v => ({ ...v, slow: !v.slow }))}><i className="dot" style={{ background: '#ff9800' }}/><span>SMA ({slowPeriod})</span>{indicators.slow && <Check size={14}/>}</button>
-          <div className="tv-menu-note">دوره‌ها از تنظیمات Strategy Tester خوانده می‌شوند.</div></div>}
+        <button className={'tv-btn' + (menu === 'ind' ? ' sel' : '')} title="Indicators" aria-haspopup="dialog" aria-expanded={menu === 'ind'} onClick={() => toggleMenu('ind')}><Activity size={18}/><span className="tv-label">Indicators</span></button>
+        {menu === 'ind' && <div className="tv-menu wide indicator-popover" role="dialog" aria-label="Indicators">
+          <div className="indicator-popover-head"><div><strong>Indicators</strong><small>افزودن اندیکاتور به چارت</small></div><button className="indicator-close" aria-label="بستن" onClick={() => setMenu(null)}><X size={16}/></button></div>
+          <label className="indicator-search"><Search size={15}/><input autoFocus placeholder="جست‌وجوی اندیکاتور…" value={indicatorSearch} onChange={e => setIndicatorSearch(e.target.value)} /></label>
+          <div className="indicator-category">TREND</div>
+          {(!indicatorSearch.trim() || 'sma simple moving average میانگین متحرک'.includes(indicatorSearch.toLowerCase())) && <>
+            <button className={'tv-item indicator-option' + (indicators.fast ? ' sel' : '')} onClick={() => setIndicators(v => ({ ...v, fast: !v.fast }))}><i className="dot" style={{ background: '#2962ff' }}/><span><b>Simple Moving Average</b><small>SMA · دوره سریع ({fastPeriod})</small></span>{indicators.fast ? <Check size={15}/> : <Plus size={15}/>}</button>
+            <button className={'tv-item indicator-option' + (indicators.slow ? ' sel' : '')} onClick={() => setIndicators(v => ({ ...v, slow: !v.slow }))}><i className="dot" style={{ background: '#ff9800' }}/><span><b>Simple Moving Average</b><small>SMA · دوره کند ({slowPeriod})</small></span>{indicators.slow ? <Check size={15}/> : <Plus size={15}/>}</button>
+          </>}
+          {indicatorSearch.trim() && !'sma simple moving average میانگین متحرک'.includes(indicatorSearch.toLowerCase()) && <div className="indicator-empty">فعلاً فقط SMA پیاده‌سازی شده است.</div>}
+          <div className="tv-menu-note">دوره‌ها از تنظیمات Strategy Tester خوانده می‌شوند. برای حذف اندیکاتور، دوباره روی آن بزن.</div>
+        </div>}
       </div>
       <button className="tv-btn" title="Create Alert" onClick={() => { setPanel('alerts'); setNotice('هشدار قیمت هنوز اضافه نشده است.') }}><AlarmClock size={18}/><span className="tv-label">Alert</span></button>
       <button className={'tv-btn tv-replay' + (replay.active ? ' on' : '')} title="Bar Replay" onClick={toggleReplay}><Rewind size={18} fill="currentColor"/><span>Replay</span></button>
