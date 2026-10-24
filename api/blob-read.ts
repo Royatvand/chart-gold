@@ -1,5 +1,7 @@
 import { get } from '@vercel/blob'
 
+declare const process: { env: Record<string, string | undefined> }
+
 export default async function handler(request: Request) {
   if (request.method !== 'GET') {
     return Response.json({ error: 'Method not allowed' }, { status: 405 })
