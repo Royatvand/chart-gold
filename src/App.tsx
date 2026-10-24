@@ -209,7 +209,7 @@ function App() {
     </div>
     <div className="terminal-layout">
       <aside className="left-tools" aria-label="Drawing tools">
-        {[['Cursor', MousePointer2], ['Crosshair', Crosshair], ['Trend line', TrendingUp], ['Brush', Pencil], ['Horizontal line', Minus], ['Measure', Ruler], ['Zoom in', ZoomIn], ['Zoom out', ZoomOut], ['Hide drawings', Eye]].map(([name, Icon]) => <button key={name as string} title={name as string} aria-label={name as string} className={tool === name ? 'left-tool selected' : 'left-tool'} onClick={() => {setTool(name as string); if (name !== 'Cursor' && name !== 'Crosshair') setNotice(`ابزار ${name as string} انتخاب شد؛ رسم تعاملی این ابزار هنوز پیاده‌سازی نشده.`)}}><Icon size={18}/></button>)}
+        {[{name:'Cursor', Icon:MousePointer2}, {name:'Crosshair', Icon:Crosshair}, {name:'Trend line', Icon:TrendingUp}, {name:'Brush', Icon:Pencil}, {name:'Horizontal line', Icon:Minus}, {name:'Measure', Icon:Ruler}, {name:'Zoom in', Icon:ZoomIn}, {name:'Zoom out', Icon:ZoomOut}, {name:'Hide drawings', Icon:Eye}].map(({name, Icon}) => <button key={name} title={name} aria-label={name} className={tool === name ? 'left-tool selected' : 'left-tool'} onClick={() => {setTool(name); if (name !== 'Cursor' && name !== 'Crosshair') setNotice(`ابزار ${name} انتخاب شد؛ رسم تعاملی این ابزار هنوز پیاده‌سازی نشده.`)}}><Icon size={18}/></button>)}
         <span className="tool-spacer"/><button className="left-tool" title="Remove drawings" onClick={() => setNotice('موردی برای پاک کردن انتخاب نشده است.')}><X size={17}/></button>
       </aside>
       <section className="chart-area">
