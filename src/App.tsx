@@ -17,37 +17,91 @@ const demo: Candle[] = Array.from({ length: 320 }, (_, i) => {
 const fmt = (n: number, digits = 2) => n.toLocaleString('en-US', { minimumFractionDigits: digits, maximumFractionDigits: digits })
 const dateLabel = (t?: UTCTimestamp) => t ? new Date(Number(t) * 1000).toISOString().replace('T', ' ').slice(0, 16) : '—'
 
-function parseCsv(raw: string): Candle[] {
-  const lines = raw.trim().split(/\r?\n/)
-  if (lines.length < 2) throw new Error('CSV باید سطر عنوان و حداقل یک کندل داشته باشد.')
-  const header = lines[0].replace(/^\uFEFF/, '').split(/[,;\t]/).map(x => x.trim().replace(/[<>]/g, '').toUpperCase())
-  const find = (...names: string[]) => header.findIndex(h => names.includes(h))
-  const dateIdx = find('DTYYYYMMDD', 'DATE', 'DATETIME', 'TIMESTAMP')
-  const timeIdx = find('TIME')
-  const oi = find('OPEN'), hi = find('HIGH'), li = find('LOW'), ci = find('CLOSE')
-  if ([oi, hi, li, ci].some(i => i < 0) || dateIdx < 0) throw new Error('ستون‌های DATE/TIME و OPEN, HIGH, LOW, CLOSE در فایل پیدا نشدند.')
+async function parseCsvFile(file: File, onProgress: (percent: number) => void): Promise<Candle[]> {
+  // Stream the file instead of creating a giant string plus arrays for every line/cell.
+  const reader = file.stream().getReader()
+  const decoder = new TextDecoder()
   const result: Candle[] = []
-  for (const line of lines.slice(1)) {
-    if (!line.trim()) continue
-    const cells = line.split(/[,;\t]/).map(x => x.trim())
-    const rawDate = cells[dateIdx] ?? ''
-    const rawTime = timeIdx >= 0 ? (cells[timeIdx] ?? '000000').padStart(6, '0') : '000000'
+  let buffer = ''
+  let header: string[] | null = null
+  let delimiter = ','
+  let dateIdx = -1, timeIdx = -1, oi = -1, hi = -1, li = -1, ci = -1, vi = -1
+  let bytesRead = 0
+  let lastReported = -1
+
+  const processLine = (rawLine: string) => {
+    const line = rawLine.trim()
+    if (!line) return
+    if (!header) {
+      const clean = line.replace(/^\\uFEFF/, '')
+      const counts = [',', ';', '\\t'].map(d => ({ d, n: clean.split(d).length }))
+      delimiter = counts.sort((a, b) => b.n - a.n)[0].d
+      header = clean.split(delimiter).map(x => x.trim().replace(/[<>]/g, '').toUpperCase())
+      const find = (...names: string[]) => header!.findIndex(h => names.includes(h))
+      dateIdx = find('DTYYYYMMDD', 'DATE', 'DATETIME', 'TIMESTAMP')
+      timeIdx = find('TIME')
+      oi = find('OPEN'); hi = find('HIGH'); li = find('LOW'); ci = find('CLOSE')
+      vi = find('VOL', 'VOLUME')
+      if ([oi, hi, li, ci].some(i => i < 0) || dateIdx < 0) {
+        throw new Error('ستون‌های DATE/TIME و OPEN, HIGH, LOW, CLOSE در فایل پیدا نشدند.')
+      }
+      return
+    }
+
+    const cells = line.split(delimiter)
+    const rawDate = (cells[dateIdx] ?? '').trim()
+    const rawTime = timeIdx >= 0 ? (cells[timeIdx] ?? '000000').trim().padStart(6, '0') : '000000'
     let timestamp = Number(rawDate)
-    if (/^\d{8}$/.test(rawDate)) {
+    if (/^\\d{8}$/.test(rawDate)) {
       timestamp = Date.UTC(+rawDate.slice(0, 4), +rawDate.slice(4, 6) - 1, +rawDate.slice(6, 8), +rawTime.slice(0, 2), +rawTime.slice(2, 4), +rawTime.slice(4, 6)) / 1000
     } else if (!Number.isFinite(timestamp) || timestamp < 1000000000) {
       const parsed = Date.parse(rawDate)
-      if (!Number.isFinite(parsed)) continue
+      if (!Number.isFinite(parsed)) return
       timestamp = parsed / 1000
     }
     const open = Number(cells[oi]), high = Number(cells[hi]), low = Number(cells[li]), close = Number(cells[ci])
-    if (![timestamp, open, high, low, close].every(Number.isFinite) || high < low || timestamp <= 0) continue
-    result.push({ time: Math.floor(timestamp) as UTCTimestamp, open, high, low, close, volume: Number(cells[find('VOL', 'VOLUME')]) || 0 })
+    if (![timestamp, open, high, low, close].every(Number.isFinite) || high < low || timestamp <= 0) return
+    result.push({ time: Math.floor(timestamp) as UTCTimestamp, open, high, low, close, volume: Number(cells[vi]) || 0 })
   }
+
+  try {
+    while (true) {
+      const { value, done } = await reader.read()
+      if (done) break
+      bytesRead += value.byteLength
+      buffer += decoder.decode(value, { stream: true })
+      let newline = buffer.indexOf('\\n')
+      while (newline !== -1) {
+        processLine(buffer.slice(0, newline).replace(/\\r$/, ''))
+        buffer = buffer.slice(newline + 1)
+        newline = buffer.indexOf('\\n')
+      }
+      const percent = Math.min(99, Math.floor(bytesRead / Math.max(file.size, 1) * 100))
+      if (percent !== lastReported) { lastReported = percent; onProgress(percent) }
+    }
+    buffer += decoder.decode()
+    if (buffer.trim()) processLine(buffer)
+  } catch (error) {
+    await reader.cancel().catch(() => {})
+    throw error
+  } finally {
+    reader.releaseLock()
+  }
+
+  if (!header) throw new Error('CSV باید سطر عنوان و حداقل یک کندل داشته باشد.')
+  if (!result.length) throw new Error('هیچ کندل معتبر OHLC پیدا نشد.')
+
+  // Sort in place and deduplicate in place to avoid allocating more full-size arrays.
   result.sort((a, b) => Number(a.time) - Number(b.time))
-  const unique = result.filter((c, i) => i === 0 || c.time !== result[i - 1].time)
-  if (!unique.length) throw new Error('هیچ کندل معتبر OHLC پیدا نشد.')
-  return unique
+  let write = 0
+  for (let read = 0; read < result.length; read++) {
+    if (write === 0 || result[read].time !== result[write - 1].time) {
+      result[write++] = result[read]
+    }
+  }
+  result.length = write
+  onProgress(100)
+  return result
 }
 function sma(values: number[], period: number, index: number) {
   if (index + 1 < period) return NaN
@@ -156,10 +210,15 @@ function App() {
   }, [playing, candles.length])
   const importFile = useCallback(async (file?: File) => {
     if (!file) return
+    setImportProgress(0)
     try {
-      const parsed = parseCsv(await file.text())
+      const parsed = await parseCsvFile(file, setImportProgress)
       setCandles(parsed); setVisibleCount(parsed.length); setFileName(file.name); setTestResults(null); setTrades([]); setShowImport(false); setNotice(`${parsed.length.toLocaleString()} کندل وارد شد.`)
-    } catch (e) { setNotice(e instanceof Error ? e.message : 'خطا در خواندن CSV') }
+    } catch (e) {
+      setNotice(e instanceof Error ? e.message : 'خطا در خواندن CSV')
+    } finally {
+      setImportProgress(null)
+    }
   }, [])
   const recordTrade = (side: Side) => {
     if (!last) return
@@ -226,7 +285,7 @@ function App() {
       {watchlistOpen && <aside className="right-sidebar"><div className="sidebar-header"><strong>Watchlist</strong><button className="top-icon" onClick={()=>setWatchlistOpen(false)} title="Close watchlist"><X size={15}/></button></div><div className="watchlist-columns"><span>Symbol</span><span>Last</span><span>Chg%</span></div><button className="watch-row active" onClick={()=>setSymbol('XAUUSD')}><span className="watch-symbol"><span className="watch-avatar gold">Au</span><span><strong>XAUUSD</strong><small>Gold / U.S. Dollar</small></span></span><span>{fmt(last?.close??0)}</span><span className={pct>=0?'up':'down'}>{pct>=0?'+':''}{pct.toFixed(2)}%</span></button><button className="watch-row" onClick={()=>setSymbol('EURUSD')}><span className="watch-symbol"><span className="watch-avatar blue">€</span><span><strong>EURUSD</strong><small>Euro / U.S. Dollar</small></span></span><span>1.0842</span><span className="down">−0.12%</span></button><button className="watch-row" onClick={()=>setSymbol('BTCUSD')}><span className="watch-symbol"><span className="watch-avatar orange">₿</span><span><strong>BTCUSD</strong><small>Bitcoin / U.S. Dollar</small></span></span><span>67,420</span><span className="up">+1.42%</span></button><button className="watch-row" onClick={()=>setSymbol('USOIL')}><span className="watch-symbol"><span className="watch-avatar silver">O</span><span><strong>USOIL</strong><small>Crude Oil</small></span></span><span>72.18</span><span className="down">−0.33%</span></button><div className="sidebar-section"><div className="sidebar-section-title"><strong>Market details</strong><button className="top-icon" onClick={()=>setNotice('اطلاعات بازار به دیتای زنده متصل نیست.')}><CircleHelp size={14}/></button></div><div className="detail-row"><span>Market</span><strong>Forex / CFD</strong></div><div className="detail-row"><span>Session</span><strong>Historical</strong></div><div className="detail-row"><span>Bars loaded</span><strong>{candles.length.toLocaleString()}</strong></div><div className="detail-row"><span>Replay state</span><strong>{playing?'Playing':'Paused'}</strong></div></div><div className="sidebar-section"><div className="sidebar-section-title"><strong>Practice order</strong><SlidersHorizontal size={14}/></div><p className="side-hint">ثبت معامله‌ی آزمایشی روی آخرین کندل قابل مشاهده</p><div className="order-buttons"><button className="buy-button" onClick={()=>recordTrade('LONG')}><TrendingUp size={15}/> Buy</button><button className="sell-button" onClick={()=>recordTrade('SHORT')}><TrendingDown size={15}/> Sell</button></div><button className="full-width-action" onClick={()=>setActiveTab('List of Trades')}>Open trade log</button></div><div className="sidebar-section sidebar-note"><ShieldCheck size={15}/><span>این نسخه شبیه‌ساز آموزشی است؛ قیمت‌ها نمونه‌اند مگر اینکه CSV خودت را وارد کنی.</span></div></aside>}
     </div>
     {notice && <div className="toast" role="status"><AlertTriangle size={16}/><span>{notice}</span><button onClick={()=>setNotice('')} aria-label="Dismiss"><X size={15}/></button></div>}
-    {showImport && <div className="modal-backdrop" onClick={()=>setShowImport(false)}><section className="import-modal" role="dialog" aria-modal="true" aria-labelledby="import-title" onClick={e=>e.stopPropagation()}><div className="modal-head"><div><strong id="import-title">Import historical data</strong><span>CSV · OHLC candles</span></div><button className="top-icon" onClick={()=>setShowImport(false)} aria-label="Close"><X size={18}/></button></div><label className="file-drop"><FileUp size={28}/><strong>Choose a CSV file</strong><span>Required: DATE / DTYYYYMMDD, OPEN, HIGH, LOW, CLOSE. Optional: TIME, VOL.</span><input type="file" accept=".csv,.txt,text/csv,text/plain" onChange={e=>importFile(e.target.files?.[0])}/></label><div className="modal-tip">CSV data is parsed locally in your browser. Dates without a timezone are interpreted as UTC. Use clean, chronologically sortable historical data for meaningful results.</div></section></div>}
+    {showImport && <div className="modal-backdrop" onClick={()=>setShowImport(false)}><section className="import-modal" role="dialog" aria-modal="true" aria-labelledby="import-title" onClick={e=>e.stopPropagation()}><div className="modal-head"><div><strong id="import-title">Import historical data</strong><span>CSV · OHLC candles</span></div><button className="top-icon" onClick={()=>setShowImport(false)} aria-label="Close"><X size={18}/></button></div><label className="file-drop"><FileUp size={28}/><strong>Choose a CSV file</strong><span>Required: DATE / DTYYYYMMDD, OPEN, HIGH, LOW, CLOSE. Optional: TIME, VOL.</span>{importProgress !== null && <div className="import-progress"><div className="import-progress-label"><span>Streaming CSV…</span><strong>{importProgress}%</strong></div><div className="import-progress-track"><div className="import-progress-fill" style={{ width: `${importProgress}%` }} /></div></div>}<input type="file" accept=".csv,.txt,text/csv,text/plain" onChange={e=>importFile(e.target.files?.[0])}/></label><div className="modal-tip">CSV data is parsed locally in your browser. Dates without a timezone are interpreted as UTC. Use clean, chronologically sortable historical data for meaningful results.</div></section></div>}
     <footer className="app-footer"><span>CHARTGOLD <i>·</i> BACKTEST LAB</span><span><span className="status-dot"/> Historical data only · Prototype</span></footer>
   </main>
 }
