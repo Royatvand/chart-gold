@@ -91,8 +91,14 @@ async function parseCsvFile(file: File, onProgress: (percent: number) => void): 
   if (!header) throw new Error('CSV باید سطر عنوان و حداقل یک کندل داشته باشد.')
   if (!result.length) throw new Error('هیچ کندل معتبر OHLC پیدا نشد.')
 
-  // Sort in place and deduplicate in place to avoid allocating more full-size arrays.
-  result.sort((a, b) => Number(a.time) - Number(b.time))
+  // Most market-data exports are already chronological. Avoid an expensive O(n log n)
+  // sort unless an out-of-order timestamp was actually detected.
+  let ordered = true
+  for (let i = 1; i < result.length; i++) {
+    if (Number(result[i].time) < Number(result[i - 1].time)) { ordered = false; break }
+  }
+  if (!ordered) result.sort((a, b) => Number(a.time) - Number(b.time))
+  // Deduplicate in place so no second full-size candle array is allocated.
   let write = 0
   for (let read = 0; read < result.length; read++) {
     if (write === 0 || result[read].time !== result[write - 1].time) {
@@ -169,7 +175,13 @@ function App() {
   const [testResults, setTestResults] = useState<ClosedTrade[] | null>(null)
   const [showSettings, setShowSettings] = useState(false)
   const [watchlistOpen, setWatchlistOpen] = useState(true)
-  const shown = useMemo(() => candles.slice(0, Math.max(1, Math.min(visibleCount, candles.length))), [candles, visibleCount])
+  // Keep chart rendering bounded: the dataset may contain millions of candles, but
+  // only the most recent 5,000 bars up to the replay cursor are sent to Lightweight Charts.
+  const shown = useMemo(() => {
+    const end = Math.max(1, Math.min(visibleCount, candles.length))
+    const start = Math.max(0, end - 5000)
+    return candles.slice(start, end)
+  }, [candles, visibleCount])
   const last = shown[shown.length - 1]
   const prev = shown[Math.max(0, shown.length - 2)]
   const delta = last && prev ? last.close - prev.close : 0
