@@ -37,7 +37,7 @@ const CHART_TYPES: { id: ChartType; label: string; Icon: (p: { size?: number }) 
 type ToolDef = { name: string; Icon: LucideIcon; impl?: boolean; action?: 'zoomIn' | 'zoomOut' | 'hide' }
 const TOOL_GROUPS: ToolDef[][] = [
   [{ name: 'Crosshair', Icon: Crosshair, impl: true }, { name: 'Cursor', Icon: MousePointer2, impl: true }],
-  [{ name: 'Trend line', Icon: TrendingUp }, { name: 'Horizontal line', Icon: Minus, impl: true }, { name: 'Fib retracement', Icon: Layers }],
+  [{ name: 'Trend line', Icon: TrendingUp, impl: true }, { name: 'Horizontal line', Icon: Minus, impl: true }, { name: 'Fib retracement', Icon: Layers, impl: true }],
   [{ name: 'Brush', Icon: Pencil }, { name: 'Text', Icon: Type }, { name: 'Icon', Icon: Smile }],
   [{ name: 'Measure', Icon: Ruler }, { name: 'Zoom in', Icon: ZoomIn, impl: true, action: 'zoomIn' }, { name: 'Zoom out', Icon: ZoomOut, impl: true, action: 'zoomOut' }],
   [{ name: 'Magnet mode', Icon: Magnet }, { name: 'Lock all drawings', Icon: Lock }, { name: 'Hide all drawings', Icon: Eye, impl: true, action: 'hide' }],
@@ -73,6 +73,9 @@ function App() {
   const [query, setQuery] = useState('')
   const [tool, setTool] = useState('Crosshair')
   const [drawings, setDrawings] = useState<number[]>([])
+  const [trendLines, setTrendLines] = useState<{ a: { time: number; price: number }; b: { time: number; price: number } }[]>([])
+  const [fibDrawings, setFibDrawings] = useState<{ a: { time: number; price: number }; b: { time: number; price: number } }[]>([])
+  const [pendingAnchor, setPendingAnchor] = useState<{ time: number; price: number } | null>(null)
   const [redo, setRedo] = useState<number[]>([])
   const [hideDrawings, setHideDrawings] = useState(false)
   const [indicators, setIndicators] = useState({ fast: false, slow: false })
@@ -132,6 +135,8 @@ function App() {
 
   // Refs mirror state for chart event handlers that are subscribed once.
   const toolRef = useRef(tool); toolRef.current = tool
+  const pendingAnchorRef = useRef<{ time: number; price: number } | null>(null)
+  pendingAnchorRef.current = pendingAnchor
   const selectingRef = useRef(replay.selecting); selectingRef.current = replay.selecting
   const dataRef = useRef(data); dataRef.current = data
   const shownRef = useRef(shown); shownRef.current = shown
@@ -166,9 +171,17 @@ function App() {
         if (idx >= 0) { setVisibleCount(idx + 1); setReplay(r => ({ ...r, selecting: false })) }
         return
       }
-      if (toolRef.current === 'Horizontal line' && seriesRef.current) {
-        const price = seriesRef.current.coordinateToPrice(param.point.y)
-        if (price !== null) { setDrawings(d => [...d, Number(price)]); setRedo([]) }
+      const activeTool = toolRef.current
+      const price = seriesRef.current?.coordinateToPrice(param.point.y)
+      if (price === null || price === undefined) return
+      const anchor = { time: Number(param.time), price: Number(price) }
+      if (activeTool === 'Horizontal line') { setDrawings(d => [...d, anchor.price]); setRedo([]); return }
+      if (activeTool === 'Trend line' || activeTool === 'Fib retracement') {
+        if (!pendingAnchorRef.current) { pendingAnchorRef.current = anchor; setPendingAnchor(anchor); setNotice(`نقطه اول ${activeTool === 'Trend line' ? 'خط روند' : 'فیبوناچی'} ثبت شد؛ روی نقطه دوم چارت کلیک کن.`); return }
+        const shape = { a: pendingAnchorRef.current, b: anchor }
+        if (activeTool === 'Trend line') setTrendLines(lines => [...lines, shape])
+        else setFibDrawings(lines => [...lines, shape])
+        pendingAnchorRef.current = null; setPendingAnchor(null); setRedo([]); setNotice('ابزار رسم اضافه شد.')
       }
     })
     return () => { chart.remove(); chartRef.current = null; seriesRef.current = null; indicatorRefs.current = [] }
@@ -284,8 +297,9 @@ function App() {
     if (t.action === 'zoomIn') return zoom(.7)
     if (t.action === 'zoomOut') return zoom(1.4)
     if (t.action === 'hide') { setHideDrawings(v => !v); return }
-    if (!t.impl) { setNotice(`ابزار «${t.name}» هنوز پیاده‌سازی نشده است؛ فعلاً Crosshair، Cursor و Horizontal line فعال‌اند.`); return }
-    setTool(t.name)
+    if (!t.impl) { setNotice(`ابزار «${t.name}» هنوز پیاده‌سازی نشده است.`); return }
+    pendingAnchorRef.current = null; setPendingAnchor(null); setTool(t.name)
+    if (t.name === 'Trend line' || t.name === 'Fib retracement') setNotice(`ابزار ${t.name} فعال شد؛ برای رسم، دو نقطه روی چارت انتخاب کن.`)
   }
   const undo = () => setDrawings(d => { if (!d.length) return d; setRedo(r => [...r, d[d.length - 1]]); return d.slice(0, -1) })
   const redoDraw = () => setRedo(r => { if (!r.length) return r; setDrawings(d => [...d, r[r.length - 1]]); return r.slice(0, -1) })
@@ -491,13 +505,35 @@ function App() {
           return <button key={t.name} title={t.name} aria-label={t.name} className={'tv-tool' + (selected ? ' sel' : '') + (t.impl ? '' : ' soft')} onClick={() => pickTool(t)}><Icon size={20} strokeWidth={1.6}/></button>
         })}</div>)}
         <div className="tv-spacer"/>
-        <div className="tv-tool-group"><button className="tv-tool" title="Remove drawings" aria-label="Remove drawings" onClick={() => { setDrawings([]); setRedo([]) }}><Trash2 size={20} strokeWidth={1.6}/></button></div>
+        <div className="tv-tool-group"><button className="tv-tool" title="Remove drawings" aria-label="Remove drawings" onClick={() => { setDrawings([]); setTrendLines([]); setFibDrawings([]); setPendingAnchor(null); pendingAnchorRef.current = null; setRedo([]) }}><Trash2 size={20} strokeWidth={1.6}/></button></div>
       </aside>
 
       {/* ===== CHART + BOTTOM ===== */}
       <section className="tv-center">
         <div className="tv-chart-wrap">
           <div ref={host} className="tv-chart"/>
+          {!hideDrawings && chartRef.current && seriesRef.current && <svg className="drawing-overlay" aria-label="Chart drawings">
+            {trendLines.map((line, i) => {
+              const x1 = chartRef.current!.timeScale().timeToCoordinate(line.a.time as UTCTimestamp)
+              const x2 = chartRef.current!.timeScale().timeToCoordinate(line.b.time as UTCTimestamp)
+              const y1 = seriesRef.current!.priceToCoordinate(line.a.price)
+              const y2 = seriesRef.current!.priceToCoordinate(line.b.price)
+              return x1 === null || x2 === null || y1 === null || y2 === null ? null : <line key={`trend-${i}`} x1={x1} y1={y1} x2={x2} y2={y2} stroke="#82b1ff" strokeWidth="2" vectorEffect="non-scaling-stroke" />
+            })}
+            {fibDrawings.map((fib, i) => {
+              const x1 = chartRef.current!.timeScale().timeToCoordinate(fib.a.time as UTCTimestamp)
+              const x2 = chartRef.current!.timeScale().timeToCoordinate(fib.b.time as UTCTimestamp)
+              if (x1 === null || x2 === null) return null
+              const left = Math.min(x1, x2), right = Math.max(x1, x2)
+              const levels = [0, .236, .382, .5, .618, .786, 1]
+              return <g key={`fib-${i}`}>{levels.map(level => {
+                const price = fib.a.price + (fib.b.price - fib.a.price) * level
+                const y = seriesRef.current!.priceToCoordinate(price)
+                return y === null ? null : <g key={level}><line x1={left} y1={y} x2={right} y2={y} stroke={level === .618 ? '#ffb74d' : '#b2b5be'} strokeWidth="1" strokeDasharray="4 3"/><text x={right - 4} y={y - 3} fill={level === .618 ? '#ffb74d' : '#b2b5be'} fontSize="10" textAnchor="end">{(level * 100).toFixed(1)}%</text></g>
+              })}</g>
+            })}
+            {pendingAnchor && (() => { const x = chartRef.current!.timeScale().timeToCoordinate(pendingAnchor.time as UTCTimestamp); const y = seriesRef.current!.priceToCoordinate(pendingAnchor.price); return x === null || y === null ? null : <circle cx={x} cy={y} r="4" fill="#82b1ff"/> })()}
+          </svg>}
           <div className="tv-legend">
             <div className="tv-legend-title"><b>{info.name}</b><span>·</span><span>{timeframe}</span><span>·</span><span>{isDemo ? 'SAMPLE' : fileName}</span></div>
             {bar && <div className="tv-legend-ohlc">
