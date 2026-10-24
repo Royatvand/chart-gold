@@ -80,6 +80,7 @@ function App() {
   const [seriesVersion, setSeriesVersion] = useState(0)
   const [hoverIdx, setHoverIdx] = useState<number | null>(null)
   const [panel, setPanel] = useState<SidePanel>('watchlist')
+  const [mobilePanelOpen, setMobilePanelOpen] = useState(false)
   const [bottomOpen, setBottomOpen] = useState(false)
   const [bottomTab, setBottomTab] = useState<'tester' | 'trading'>('tester')
   const [testerTab, setTesterTab] = useState<'overview' | 'trades' | 'settings'>('overview')
@@ -246,7 +247,7 @@ function App() {
   /* ---------- actions ---------- */
   const toggleMenu = (id: string) => setMenu(m => (m === id ? null : id))
   const selectSymbol = (sym: string) => {
-    setSymbol(sym); setSymbolDialog(false); setQuery(''); setMenu(null)
+    setSymbol(sym); setSymbolDialog(false); setQuery(''); setMenu(null); setMobilePanelOpen(false)
     if (isDemo && demos[sym]) { setCandles(demos[sym]); setDrawings([]); setRedo([]) }
   }
   const submitSymbolQuery = () => {
@@ -431,6 +432,7 @@ function App() {
       <button className="tv-logo" title="ChartGold" aria-label="ChartGold"><Activity size={18}/></button>
       <i className="tv-sep"/>
       <button className="tv-btn tv-symbol" onClick={() => setSymbolDialog(true)} title="Symbol Search"><Search size={16}/><b>{symbol}</b></button>
+      <button className="tv-btn mobile-sidebar-toggle" title="Open panels" aria-label="Open watchlist and panels" aria-expanded={mobilePanelOpen} onClick={() => { setPanel(p => p ?? 'watchlist'); setMobilePanelOpen(v => !v) }}><List size={17}/></button>
       <button className="tv-btn" title="Compare or Add Symbol" onClick={() => setNotice('مقایسه‌ی نمادها هنوز اضافه نشده است.')}><Plus size={18}/></button>
       <i className="tv-sep"/>
       {tfButtons.map(tf => {
@@ -480,6 +482,7 @@ function App() {
     </header>
 
     <div className="tv-body">
+      {mobilePanelOpen && <button className="mobile-panel-backdrop" aria-label="Close panels" onClick={() => setMobilePanelOpen(false)}/>}
       {/* ===== LEFT DRAWING TOOLBAR ===== */}
       <aside className="tv-left" aria-label="Drawing tools">
         {TOOL_GROUPS.map((g, gi) => <div key={gi} className="tv-tool-group">{g.map(t => {
@@ -571,7 +574,7 @@ function App() {
       </section>
 
       {/* ===== RIGHT SIDEBAR ===== */}
-      <aside className="tv-right">
+      <aside className={'tv-right' + (mobilePanelOpen ? ' mobile-open' : '')}>
         {panel && <section className="tv-panel">
           {panel === 'watchlist' && <>
             <div className="tv-panel-head"><button className="tv-panel-title">Watchlist <ChevronDown size={14}/></button><div className="tv-spacer"/><button className="tv-btn tv-narrow" title="Add symbol" onClick={() => setSymbolDialog(true)}><Plus size={17}/></button><button className="tv-btn tv-narrow" title="More" onClick={() => setNotice('گزینه‌های بیشتر لیست پیگیری هنوز اضافه نشده است.')}><Ellipsis size={17}/></button></div>
