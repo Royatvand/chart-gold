@@ -209,7 +209,7 @@ export default async function handler(request: Request) {
     if (!header || rawCount === 0 || barCount === 0) return Response.json({ error: 'No valid OHLC candles found in this CSV.' }, { status: 422 })
     if (openTrade && barCount && lastProcessedBar) closeTrade(lastProcessedBar.close, barCount - 1)
 
-    const sortedTrades = previewFull ? [...tradeRows.slice(tradeCursor), ...tradeRows.slice(0, tradeCursor)] : tradeRows
+    const sortedTrades = totalTrades > 1000 ? [...tradeRows.slice(tradeCursor), ...tradeRows.slice(0, tradeCursor)] : tradeRows
     const chartBars = previewFull ? [...preview.slice(previewCursor), ...preview.slice(0, previewCursor)] : preview
     const grossLossSafe = grossLoss
     return Response.json({
