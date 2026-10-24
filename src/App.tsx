@@ -380,7 +380,7 @@ function App() {
       setStoredBlob({ pathname: payload.pathname || name, size: 0, url: '' })
       setCloudSummary(payload.summary); setTestResults(payload.trades); setTrades([]); setDrawings([]); setRedo([])
       setTesterTab('overview'); setBottomOpen(true); setBottomTab('tester'); setShowImport(false)
-      setNotice('به دیتای ذخیره‌شده وصل شد: ' + (payload.rawCandles?.toLocaleString() || '—') + ' کندل ورودی؛ ' + (payload.chartBars?.toLocaleString() || '—') + ' کندل پردازش شد.')
+      setNotice(`اتصال موفق: ${(payload.rawCandles?.toLocaleString() || '—')} کندل خام به ${(payload.chartBars?.toLocaleString() || '—')} کندل ${timeframe} تجمیع شد. برای سرعت، چارت آخرین ${Math.min(5000, payload.candles.length).toLocaleString()} کندل را نشان می‌دهد؛ آمار بک‌تست روی کل دیتاست محاسبه شده است.`)
     } catch (e) {
       setNotice(e instanceof Error ? e.message : 'اتصال به دیتای ذخیره‌شده ناموفق بود.')
     } finally { setCloudProcessing(false) }
