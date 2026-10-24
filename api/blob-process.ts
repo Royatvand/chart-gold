@@ -1,4 +1,4 @@
-import { get } from '@vercel/blob'
+import { get, list } from '@vercel/blob'
 
 declare const process: { env: Record<string, string | undefined> }
 
@@ -39,7 +39,21 @@ export default async function handler(request: Request) {
     return Response.json({ error: 'Invalid JSON body' }, { status: 400 })
   }
 
-  const pathname = typeof body.pathname === 'string' ? body.pathname : ''
+  let pathname = typeof body.pathname === 'string' ? body.pathname : ''
+  if (!pathname) {
+    try {
+      const result = await list({ limit: 1000 })
+      const candidates = result.blobs.filter(blob => {
+        const name = blob.pathname.split('/').pop()?.toLowerCase() || ''
+        return name === 'xauusd.csv' || name === 'xauusd.txt'
+      }).sort((a, b) => new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime())
+      if (!candidates.length) return Response.json({ error: 'No saved XAUUSD.csv was found in this Blob store.' }, { status: 404 })
+      pathname = candidates[0].pathname
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Could not list private Blob files'
+      return Response.json({ error: message }, { status: 500 })
+    }
+  }
   const timeframeSec = Number(body.timeframeSec)
   const fastPeriod = Number(body.fastPeriod)
   const slowPeriod = Number(body.slowPeriod)
@@ -213,6 +227,7 @@ export default async function handler(request: Request) {
     const chartBars = previewFull ? [...preview.slice(previewCursor), ...preview.slice(0, previewCursor)] : preview
     const grossLossSafe = grossLoss
     return Response.json({
+      pathname,
       candles: chartBars,
       rawCandles: rawCount,
       chartBars: barCount,
