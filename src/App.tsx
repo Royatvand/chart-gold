@@ -158,6 +158,7 @@ function App() {
   const [tool, setTool] = useState('Cursor')
   const [notice, setNotice] = useState('')
   const [showImport, setShowImport] = useState(false)
+  const [importProgress, setImportProgress] = useState<number | null>(null)
   const [fileName, setFileName] = useState('')
   const [trades, setTrades] = useState<Trade[]>([])
   const [fastPeriod, setFastPeriod] = useState('9')
