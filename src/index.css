@@ -78,3 +78,37 @@
 @media(max-width:600px){
   .indicator-popover{left:12px!important;top:52px!important;width:calc(100vw - 24px)!important;max-height:calc(100dvh - 72px)!important}
 }
+
+
+/* Responsive sidebar access: the right rail must remain reachable on tablets/phones. */
+.mobile-sidebar-toggle{display:none!important}
+.mobile-panel-backdrop{display:none}
+@media(max-width:950px){
+  .mobile-sidebar-toggle{display:inline-flex!important}
+  .tv-right.mobile-open{
+    display:flex!important;
+    position:fixed!important;
+    z-index:90!important;
+    top:48px!important;
+    right:0!important;
+    bottom:0!important;
+    width:min(340px, calc(100vw - 36px))!important;
+    height:auto!important;
+    max-height:calc(100dvh - 48px)!important;
+    border-left:1px solid #3b4150!important;
+    box-shadow:-18px 0 50px #0009!important;
+    background:#131722!important;
+  }
+  .mobile-panel-backdrop{
+    display:block;
+    position:fixed;
+    z-index:85;
+    inset:48px 0 0;
+    width:100%;
+    height:calc(100dvh - 48px);
+    padding:0;
+    border:0;
+    background:#0009;
+  }
+  .tv-right.mobile-open .tv-rail{flex-shrink:0}
+}
