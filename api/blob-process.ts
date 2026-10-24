@@ -68,6 +68,7 @@ export default async function handler(request: Request) {
     let bucket = -1
     let aggregateBar: Bar | null = null
     const preview: Bar[] = []
+    let lastProcessedBar: Bar | null = null
     let previewCursor = 0
     let previewFull = false
 
@@ -95,6 +96,7 @@ export default async function handler(request: Request) {
     }
 
     const processBar = (bar: Bar) => {
+      lastProcessedBar = bar
       const index = barCount++
       if (preview.length < 5000) preview.push(bar)
       else { preview[previewCursor] = bar; previewCursor = (previewCursor + 1) % 5000; previewFull = true }
@@ -205,7 +207,7 @@ export default async function handler(request: Request) {
     }
 
     if (!header || rawCount === 0 || barCount === 0) return Response.json({ error: 'No valid OHLC candles found in this CSV.' }, { status: 422 })
-    if (openTrade && barCount) closeTrade(aggregateBar?.close ?? preview[(preview.length - 1)].close, barCount - 1)
+    if (openTrade && barCount && lastProcessedBar) closeTrade(lastProcessedBar.close, barCount - 1)
 
     const sortedTrades = previewFull ? [...tradeRows.slice(tradeCursor), ...tradeRows.slice(0, tradeCursor)] : tradeRows
     const chartBars = previewFull ? [...preview.slice(previewCursor), ...preview.slice(0, previewCursor)] : preview
