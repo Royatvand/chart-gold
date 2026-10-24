@@ -260,12 +260,13 @@ export default async function handler(req: any, res: any) {
     async json() {
       if (req.body !== undefined) {
         if (typeof req.body === 'string') return JSON.parse(req.body);
-        if (Buffer.isBuffer(req.body)) return JSON.parse(req.body.toString('utf8'));
+        if (req.body instanceof Uint8Array) return JSON.parse(new TextDecoder().decode(req.body));
         return req.body;
       }
-      const chunks: Uint8Array[] = [];
-      for await (const chunk of req) chunks.push(typeof chunk === 'string' ? Buffer.from(chunk) : chunk);
-      const raw = Buffer.concat(chunks).toString('utf8');
+      const decoder = new TextDecoder();
+      let raw = '';
+      for await (const chunk of req) raw += typeof chunk === 'string' ? chunk : decoder.decode(chunk, { stream: true });
+      raw += decoder.decode();
       return raw ? JSON.parse(raw) : {};
     },
   } as unknown as Request;
