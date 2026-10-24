@@ -69,8 +69,9 @@ function runBacktest(candles: Candle[], fastPeriod: number, slowPeriod: number, 
       if (stopHit || targetHit) {
         // If both levels are touched in one candle, conservatively assume the stop was hit first.
         const exit = stopHit ? open.stop : open.target
-        const r = (open.side === 'LONG' ? exit - open.entry : open.entry - exit) / Math.abs(open.entry - open.stop)
-        const result: ClosedTrade = { ...open, exit, result: r > 0 ? 'WIN' : 'LOSS', r: r - commission / Math.max(1, Math.abs(open.entry - open.stop)), exitIndex: i }
+        const rawR = (open.side === 'LONG' ? exit - open.entry : open.entry - exit) / Math.abs(open.entry - open.stop)
+        const netR = rawR - commission
+        const result: ClosedTrade = { ...open, exit, result: netR > 0 ? 'WIN' : 'LOSS', r: netR, exitIndex: i }
         trades.push(result); equity += equity * (riskPct / 100) * result.r; open = null
       }
     }
@@ -86,7 +87,7 @@ function runBacktest(candles: Candle[], fastPeriod: number, slowPeriod: number, 
       }
     }
   }
-  if (open) trades.push({ ...open, exit: candles[candles.length - 1].close, result: 'LOSS', r: (open.side === 'LONG' ? candles[candles.length - 1].close - open.entry : open.entry - candles[candles.length - 1].close) / Math.abs(open.entry - open.stop), exitIndex: candles.length - 1 })
+  if (open) { const exit = candles[candles.length - 1].close; const netR = (open.side === 'LONG' ? exit - open.entry : open.entry - exit) / Math.abs(open.entry - open.stop) - commission; trades.push({ ...open, exit, result: netR > 0 ? 'WIN' : 'LOSS', r: netR, exitIndex: candles.length - 1 }) }
   return trades
 }
 
