@@ -112,3 +112,5 @@
   }
   .tv-right.mobile-open .tv-rail{flex-shrink:0}
 }
+.drawing-overlay{position:absolute;inset:0;width:100%;height:100%;z-index:4;pointer-events:none;overflow:hidden}
+.drawing-overlay text{font-family:inherit;paint-order:stroke;stroke:#131722;stroke-width:2px;stroke-linejoin:round}
