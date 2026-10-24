@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createChart, CandlestickSeries, ColorType, type IChartApi, type CandlestickData, type UTCTimestamp } from 'lightweight-charts'
-import { Activity, ArrowDownToLine, ArrowLeft, ArrowRight, BarChart3, Bell, CandlestickChart, ChevronDown, Clock3, Crosshair, Eye, FileUp, FlaskConical, LayoutGrid, Magnet, Maximize2, MousePointer2, Pause, Pencil, Play, Plus, RotateCcw, Ruler, Search, Settings2, ShieldCheck, TrendingUp, Upload, X } from 'lucide-react'
+import { Activity, ArrowDownToLine, ArrowLeft, ArrowRight, BarChart3, Bell, CandlestickChart, ChevronDown, Clock3, Crosshair, Eye, FileUp, FlaskConical, LayoutGrid, Magnet, Maximize2, Minus, MousePointer2, Pause, Pencil, Play, Plus, RotateCcw, Ruler, Search, Settings2, ShieldCheck, TrendingUp, Upload, X } from 'lucide-react'
 
 type Candle = CandlestickData<UTCTimestamp> & { volume?: number }
 type Trade = { id: number; side: 'LONG' | 'SHORT'; entry: number; stop: number; target: number; result: 'OPEN' | 'WIN' | 'LOSS'; r?: number }
