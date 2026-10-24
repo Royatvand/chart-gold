@@ -27,7 +27,7 @@ function parseTimestamp(dateText: string, timeText: string): number | null {
   return Number.isFinite(parsed) ? Math.floor(parsed / 1000) : null
 }
 
-export default async function handler(request: Request) {
+async function processRequest(request: Request) {
   if (request.method !== 'POST') return Response.json({ error: 'Method not allowed' }, { status: 405 })
   const expectedKey = process.env.CHART_GOLD_UPLOAD_KEY
   if (!expectedKey || request.headers.get('x-upload-key') !== expectedKey) {
@@ -242,5 +242,44 @@ export default async function handler(request: Request) {
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Could not process the private CSV'
     return Response.json({ error: message }, { status: 500 })
+  }
+}
+
+
+// Vercel Node.js Functions provide IncomingMessage/ServerResponse, not Fetch Request/Response.
+export default async function handler(req: any, res: any) {
+  const headers = {
+    get(name: string) {
+      const value = req.headers?.[name.toLowerCase()];
+      return Array.isArray(value) ? value.join(', ') : (value ?? null);
+    },
+  };
+  const compatibleRequest = {
+    method: req.method || 'GET',
+    headers,
+    async json() {
+      if (req.body !== undefined) {
+        if (typeof req.body === 'string') return JSON.parse(req.body);
+        if (Buffer.isBuffer(req.body)) return JSON.parse(req.body.toString('utf8'));
+        return req.body;
+      }
+      const chunks: Uint8Array[] = [];
+      for await (const chunk of req) chunks.push(typeof chunk === 'string' ? Buffer.from(chunk) : chunk);
+      const raw = Buffer.concat(chunks).toString('utf8');
+      return raw ? JSON.parse(raw) : {};
+    },
+  } as unknown as Request;
+
+  try {
+    const result = await processRequest(compatibleRequest);
+    res.statusCode = result.status;
+    result.headers.forEach((value, key) => res.setHeader(key, value));
+    const body = await result.text();
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    res.end(body);
+  } catch (error) {
+    res.statusCode = 500;
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    res.end(JSON.stringify({ error: error instanceof Error ? error.message : 'Internal server error' }));
   }
 }
