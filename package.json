@@ -13,7 +13,7 @@
     "lucide-react": "^0.468.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "@vercel/blob": "^1.1.1"
+    "@vercel/blob": "^2.8.2"
   },
   "devDependencies": {
     "@types/react": "^19.0.0",
