@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createChart, CandlestickSeries, ColorType, type IChartApi, type CandlestickData, type UTCTimestamp } from 'lightweight-charts'
-import { Activity, ArrowDownToLine, ArrowLeft, ArrowRight, BarChart3, ChevronDown, Clock3, Crosshair, FileUp, FlaskConical, Maximize2, MousePointer2, Pause, Play, Plus, RotateCcw, Settings2, ShieldCheck, TrendingUp, Upload, X } from 'lucide-react'
+import { Activity, ArrowDownToLine, ArrowLeft, ArrowRight, BarChart3, Bell, CandlestickChart, ChevronDown, Clock3, Crosshair, Eye, FileUp, FlaskConical, LayoutGrid, Magnet, Maximize2, MousePointer2, Pause, Pencil, Play, Plus, RotateCcw, Ruler, Search, Settings2, ShieldCheck, TrendingUp, Upload, X } from 'lucide-react'
 
 type Candle = CandlestickData<UTCTimestamp> & { volume?: number }
 type Trade = { id: number; side: 'LONG' | 'SHORT'; entry: number; stop: number; target: number; result: 'OPEN' | 'WIN' | 'LOSS'; r?: number }
@@ -138,7 +138,7 @@ function App() {
       <header className="topbar">
         <a className="brand" href="#" aria-label="ChartGold home"><span className="brand-mark"><Activity size={19} /></span><span>chart<span className="brand-gold">gold</span><small>BACKTEST LAB</small></span></a>
         <div className="market-pill"><span className="live-dot" /> MARKET REPLAY <span className="pill-divider" /> HISTORICAL DATA</div>
-        <div className="top-actions"><button className="icon-button" title="Settings"><Settings2 size={17}/></button><div className="avatar">CG</div></div>
+        <div className="top-actions"><button className="icon-button" title="Search markets"><Search size={17}/></button><button className="icon-button" title="Alerts"><Bell size={17}/></button><button className="icon-button" title="Layout"><LayoutGrid size={17}/></button><button className="icon-button" title="Settings"><Settings2 size={17}/></button><div className="avatar">CG</div></div>
       </header>
 
       <section className="toolbar">
@@ -155,7 +155,7 @@ function App() {
           <div className="chart-card">
             <div className="chart-heading"><div><div className="chart-title"><span className="chart-symbol-dot"/> {symbol} <span className="tf-label">{timeframe}</span></div><div className="chart-subtitle">{fileName || 'Sample preview · import your historical CSV to begin'}</div></div><div className="chart-tools"><button title="Crosshair"><Crosshair size={16}/></button><button title="Pointer"><MousePointer2 size={16}/></button><button title="Expand"><Maximize2 size={16}/></button></div></div>
             <div className="ohlc-strip">{last && <><span>O <b>{last.open.toFixed(3)}</b></span><span>H <b className="positive">{last.high.toFixed(3)}</b></span><span>L <b className="negative">{last.low.toFixed(3)}</b></span><span>C <b className={last.close >= last.open ? 'positive' : 'negative'}>{last.close.toFixed(3)}</b></span></>}</div>
-            <div className="chart-stage"><div ref={chartHost} className="chart-host"/>{candles === demo && <div className="sample-watermark">SAMPLE DATA</div>}</div>
+            <div className="chart-stage"><nav className="drawing-toolbar" aria-label="Chart drawing tools"><button className="drawing-tool selected" title="Cursor"><MousePointer2 size={17}/></button><button className="drawing-tool" title="Crosshair"><Crosshair size={17}/></button><span className="drawing-separator"/><button className="drawing-tool" title="Trend line"><TrendingUp size={17}/></button><button className="drawing-tool" title="Brush"><Pencil size={17}/></button><button className="drawing-tool" title="Horizontal line"><Minus size={17}/></button><button className="drawing-tool" title="Measure"><Ruler size={17}/></button><span className="drawing-separator"/><button className="drawing-tool" title="Magnet"><Magnet size={17}/></button><button className="drawing-tool" title="Hide drawings"><Eye size={17}/></button><button className="drawing-tool" title="Delete drawings"><X size={17}/></button><div className="drawing-spacer"/><button className="drawing-tool" title="Chart type"><CandlestickChart size={17}/></button></nav><div ref={chartHost} className="chart-host"/>{candles === demo && <div className="sample-watermark">SAMPLE DATA</div>}</div>
             <div className="chart-footer"><span><span className="status-dot"/> {candles.length.toLocaleString()} candles loaded</span><span>{first ? new Date(Number(first.time) * 1000).toISOString().slice(0, 10) : '—'} — {last ? new Date(Number(last.time) * 1000).toISOString().slice(0, 10) : '—'}</span><span className={change >= 0 ? 'positive' : 'negative'}>{change >= 0 ? '+' : ''}{change.toFixed(3)} range change</span></div>
           </div>
 
