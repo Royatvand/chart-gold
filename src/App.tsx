@@ -24,6 +24,7 @@ const QUICK_TF = ['5m', '15m', '1h', '4h', '1D']
 type ChartType = 'candles' | 'bars' | 'line' | 'area'
 type Replay = { active: boolean; selecting: boolean; playing: boolean; speed: number }
 type SidePanel = 'watchlist' | 'alerts' | 'data' | null
+type PriceAlert = { id: number; symbol: string; price: number; direction: 'above' | 'below'; active: boolean }
 
 const CandlesIcon = ({ size = 18 }: { size?: number }) => <svg width={size} height={size} viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.4"><path d="M5 2v3M5 12v4M13 1v4M13 11v5"/><rect x="3" y="5" width="4" height="7" rx=".5"/><rect x="11" y="5" width="4" height="6" rx=".5"/></svg>
 const BarsIcon = ({ size = 18 }: { size?: number }) => <svg width={size} height={size} viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.4"><path d="M5 2v14M2.5 5H5M5 12h2.5M13 1v14M10.5 4H13M13 10h2.5"/></svg>
@@ -84,6 +85,10 @@ function App() {
   const [seriesVersion, setSeriesVersion] = useState(0)
   const [hoverIdx, setHoverIdx] = useState<number | null>(null)
   const [panel, setPanel] = useState<SidePanel>('watchlist')
+  const [priceAlerts, setPriceAlerts] = useState<PriceAlert[]>([])
+  const [showAlertDialog, setShowAlertDialog] = useState(false)
+  const [alertPrice, setAlertPrice] = useState('')
+  const [alertDirection, setAlertDirection] = useState<'above' | 'below'>('above')
   const [mobilePanelOpen, setMobilePanelOpen] = useState(false)
   const [bottomOpen, setBottomOpen] = useState(false)
   const [bottomTab, setBottomTab] = useState<'tester' | 'trading'>('tester')
@@ -252,6 +257,17 @@ function App() {
   useEffect(() => {
     if (replay.playing && visibleCount >= data.length) setReplay(r => ({ ...r, playing: false }))
   }, [replay.playing, visibleCount, data.length])
+  useEffect(() => {
+    const current = shown[shown.length - 1]?.close
+    const previous = shown[shown.length - 2]?.close
+    if (current === undefined || previous === undefined || current === previous) return
+    setPriceAlerts(existing => existing.map(alert => {
+      if (!alert.active || alert.symbol !== symbol) return alert
+      const crossed = alert.direction === 'above' ? previous < alert.price && current >= alert.price : previous > alert.price && current <= alert.price
+      if (crossed) { setNotice(`هشدار قیمت ${alert.symbol}: قیمت به ${fmt(alert.price, digits)} رسید.`); return { ...alert, active: false } }
+      return alert
+    }))
+  }, [shown, symbol, digits])
   useEffect(() => {
     if (!menu) return
     const close = (e: MouseEvent) => { if (!(e.target as Element).closest('[data-menu]')) setMenu(null) }
@@ -479,7 +495,7 @@ function App() {
           <div className="tv-menu-note">دوره‌ها از تنظیمات Strategy Tester خوانده می‌شوند. برای حذف اندیکاتور، دوباره روی آن بزن.</div>
         </div>}
       </div>
-      <button className="tv-btn" title="Create Alert" onClick={() => { setPanel('alerts'); setNotice('هشدار قیمت هنوز اضافه نشده است.') }}><AlarmClock size={18}/><span className="tv-label">Alert</span></button>
+      <button className="tv-btn" title="Create Alert" onClick={() => { setPanel('alerts'); setAlertPrice(String(last?.close ?? '')); setShowAlertDialog(true); setMobilePanelOpen(false) }}><AlarmClock size={18}/><span className="tv-label">Alert</span></button>
       <button className={'tv-btn tv-replay' + (replay.active ? ' on' : '')} title="Bar Replay" onClick={toggleReplay}><Rewind size={18} fill="currentColor"/><span>Replay</span></button>
       <i className="tv-sep"/>
       <button className="tv-btn" title="Undo" disabled={!drawings.length} onClick={undo}><Undo2 size={18}/></button>
@@ -636,8 +652,8 @@ function App() {
               <p className="tv-wl-note">قیمت‌ها نمونه‌اند مگر اینکه CSV خودت را وارد کنی.</p>
             </div>
           </>}
-          {panel === 'alerts' && <><div className="tv-panel-head"><span className="tv-panel-title">Alerts</span><div className="tv-spacer"/><button className="tv-btn tv-narrow" onClick={() => setNotice('هشدار قیمت هنوز اضافه نشده است.')}><Plus size={17}/></button></div>
-            <div className="tv-empty tall"><Bell size={26}/><strong>No alerts yet</strong><span>Price alerts will appear here.</span><button className="tv-primary" onClick={() => setNotice('هشدار قیمت هنوز اضافه نشده است.')}>Create alert</button></div></>}
+          {panel === 'alerts' && <><div className="tv-panel-head"><span className="tv-panel-title">Alerts ({priceAlerts.filter(a => a.active).length})</span><div className="tv-spacer"/><button className="tv-btn tv-narrow" title="Create alert" onClick={() => { setAlertPrice(String(last?.close ?? '')); setShowAlertDialog(true) }}><Plus size={17}/></button></div>
+            {priceAlerts.length ? <div className="tv-wl-list">{priceAlerts.map(alert => <div key={alert.id} className="tv-dw"><div><b>{alert.symbol} {alert.direction === 'above' ? '≥' : '≤'} {fmt(alert.price, digits)}</b><span className={alert.active ? 'up' : ''}>{alert.active ? 'Active' : 'Triggered / inactive'}</span></div><button className="tv-ghost" onClick={() => setPriceAlerts(items => items.filter(a => a.id !== alert.id))}>Remove</button></div>)}<p className="tv-wl-note">هشدارها روی کندل‌های دیتای بارگذاری‌شده و Replay بررسی می‌شوند؛ قیمت زنده نیست.</p></div> : <div className="tv-empty tall"><Bell size={26}/><strong>No alerts yet</strong><span>Create an above/below price alert for the loaded chart.</span><button className="tv-primary" onClick={() => { setAlertPrice(String(last?.close ?? '')); setShowAlertDialog(true) }}>Create alert</button></div>}</>}
           {panel === 'data' && <><div className="tv-panel-head"><span className="tv-panel-title">Data Window</span></div>
             <div className="tv-dw"><b>{symbol} · {timeframe}</b><small>{dateLabel(bar?.time)} UTC</small>
               {bar && [['Open', bar.open], ['High', bar.high], ['Low', bar.low], ['Close', bar.close]].map(([k, v]) => <div key={k as string}><span>{k as string}</span><b className={barUp ? 'up' : 'down'}>{fmt(v as number, digits)}</b></div>)}
@@ -661,6 +677,8 @@ function App() {
       <div className="tv-dialog-list">{filtered.map(s => <button key={s.symbol} className={'tv-dialog-row' + (s.symbol === symbol ? ' sel' : '')} onClick={() => selectSymbol(s.symbol)}><i style={{ background: s.color }}>{s.symbol[0]}</i><b>{s.symbol}</b><span>{s.name}</span><em>{s.group}</em></button>)}
         {!filtered.length && <div className="tv-empty"><strong>No symbols match</strong><span>{isDemo ? 'Only sample symbols are available until you import a CSV.' : 'Press Enter to use this as a custom label.'}</span></div>}</div>
     </section></div>}
+
+    {showAlertDialog && <div className="modal-backdrop" onClick={() => setShowAlertDialog(false)}><section className="tv-dialog alert-dialog" role="dialog" aria-modal="true" aria-label="Create price alert" onClick={e => e.stopPropagation()}><div className="tv-dialog-head"><strong>Create price alert · {symbol}</strong><button className="tv-btn tv-narrow" onClick={() => setShowAlertDialog(false)} aria-label="Close"><X size={18}/></button></div><form className="alert-form" onSubmit={e => { e.preventDefault(); const price = Number(alertPrice); if (!Number.isFinite(price) || price <= 0) { setNotice('قیمت هشدار باید عددی بزرگ‌تر از صفر باشد.'); return } setPriceAlerts(items => [...items, { id: Date.now(), symbol, price, direction: alertDirection, active: true }]); setPanel('alerts'); setShowAlertDialog(false); setNotice(`هشدار ${alertDirection === 'above' ? 'بالای' : 'پایین'} ${fmt(price, digits)} برای ${symbol} ساخته شد.`) }}><label>Trigger when price is</label><select value={alertDirection} onChange={e => setAlertDirection(e.target.value as 'above' | 'below')}><option value="above">At or above</option><option value="below">At or below</option></select><label>Target price</label><input type="number" min="0.00000001" step="any" required value={alertPrice} onChange={e => setAlertPrice(e.target.value)} /><p className="tv-wl-note">این هشدار روی داده‌های چارت و Bar Replay اجرا می‌شود و اعلان قیمت زنده نیست.</p><button className="tv-primary" type="submit">Save alert</button></form></section></div>}
 
     {notice && <div className="toast" role="status"><Bell size={16}/><span>{notice}</span><button onClick={() => setNotice('')} aria-label="Dismiss"><X size={15}/></button></div>}
 
