@@ -1,5 +1,7 @@
 import { handleUpload, type HandleUploadBody } from '@vercel/blob/client'
 
+declare const process: { env: Record<string, string | undefined> }
+
 export default async function handler(request: Request) {
   if (request.method !== 'POST') {
     return Response.json({ error: 'Method not allowed' }, { status: 405 })
@@ -31,7 +33,7 @@ export default async function handler(request: Request) {
         }
       },
       onUploadCompleted: async ({ blob }) => {
-        console.info('Private market-data CSV uploaded:', blob.pathname, blob.size)
+        console.info('Private market-data CSV uploaded:', blob.pathname)
       },
     })
 
