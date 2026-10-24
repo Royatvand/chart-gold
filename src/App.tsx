@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { upload as uploadBlob } from '@vercel/blob/client'
 import { createChart, CandlestickSeries, ColorType, type IChartApi, type ISeriesApi, type CandlestickData, type UTCTimestamp } from 'lightweight-charts'
 import { Activity, AlertTriangle, BarChart3, Bell, Bookmark, ChevronDown, CircleHelp, Clock3, Crosshair, Download, Eye, FileUp, FlaskConical, LineChart, ListFilter, Maximize2, Menu, Minus, MousePointer2, Pause, Pencil, Play, Plus, RotateCcw, Ruler, Search, Settings2, ShieldCheck, SlidersHorizontal, TrendingDown, TrendingUp, Upload, X, ZoomIn, ZoomOut } from 'lucide-react'
 
@@ -165,6 +166,9 @@ function App() {
   const [notice, setNotice] = useState('')
   const [showImport, setShowImport] = useState(false)
   const [importProgress, setImportProgress] = useState<number | null>(null)
+  const [blobUploadProgress, setBlobUploadProgress] = useState<number | null>(null)
+  const [uploadKey, setUploadKey] = useState('')
+  const [storedBlob, setStoredBlob] = useState<{ pathname: string; size: number; url: string } | null>(null)
   const [fileName, setFileName] = useState('')
   const [trades, setTrades] = useState<Trade[]>([])
   const [fastPeriod, setFastPeriod] = useState('9')
@@ -221,6 +225,30 @@ function App() {
     const id = window.setInterval(() => setVisibleCount(v => { if (v >= candles.length) { setPlaying(false); return v }; return v + 1 }), 350)
     return () => window.clearInterval(id)
   }, [playing, candles.length])
+  const uploadFileToBlob = useCallback(async (file?: File) => {
+    if (!file) return
+    if (!uploadKey.trim()) {
+      setNotice('برای آپلود خصوصی، کلید آپلود را وارد کن.')
+      return
+    }
+    setBlobUploadProgress(0)
+    try {
+      const blob = await uploadBlob(file.name, file, {
+        access: 'private',
+        handleUploadUrl: '/api/blob-upload',
+        clientPayload: uploadKey.trim(),
+        multipart: true,
+        contentType: file.type || 'application/octet-stream',
+        onUploadProgress: ({ percentage }) => setBlobUploadProgress(Math.round(percentage)),
+      })
+      setStoredBlob({ pathname: blob.pathname, size: file.size, url: blob.url })
+      setNotice(`فایل ${file.name} به فضای خصوصی Blob آپلود شد. برای نمایش و بک‌تست چندمیلیون کندل، مرحلهٔ خواندن قطعه‌ای هنوز لازم است.`)
+    } catch (e) {
+      setNotice(e instanceof Error ? e.message : 'آپلود فایل ناموفق بود.')
+    } finally {
+      setBlobUploadProgress(null)
+    }
+  }, [uploadKey])
   const importFile = useCallback(async (file?: File) => {
     if (!file) return
     setImportProgress(0)
@@ -298,7 +326,14 @@ function App() {
       {watchlistOpen && <aside className="right-sidebar"><div className="sidebar-header"><strong>Watchlist</strong><button className="top-icon" onClick={()=>setWatchlistOpen(false)} title="Close watchlist"><X size={15}/></button></div><div className="watchlist-columns"><span>Symbol</span><span>Last</span><span>Chg%</span></div><button className="watch-row active" onClick={()=>setSymbol('XAUUSD')}><span className="watch-symbol"><span className="watch-avatar gold">Au</span><span><strong>XAUUSD</strong><small>Gold / U.S. Dollar</small></span></span><span>{fmt(last?.close??0)}</span><span className={pct>=0?'up':'down'}>{pct>=0?'+':''}{pct.toFixed(2)}%</span></button><button className="watch-row" onClick={()=>setSymbol('EURUSD')}><span className="watch-symbol"><span className="watch-avatar blue">€</span><span><strong>EURUSD</strong><small>Euro / U.S. Dollar</small></span></span><span>1.0842</span><span className="down">−0.12%</span></button><button className="watch-row" onClick={()=>setSymbol('BTCUSD')}><span className="watch-symbol"><span className="watch-avatar orange">₿</span><span><strong>BTCUSD</strong><small>Bitcoin / U.S. Dollar</small></span></span><span>67,420</span><span className="up">+1.42%</span></button><button className="watch-row" onClick={()=>setSymbol('USOIL')}><span className="watch-symbol"><span className="watch-avatar silver">O</span><span><strong>USOIL</strong><small>Crude Oil</small></span></span><span>72.18</span><span className="down">−0.33%</span></button><div className="sidebar-section"><div className="sidebar-section-title"><strong>Market details</strong><button className="top-icon" onClick={()=>setNotice('اطلاعات بازار به دیتای زنده متصل نیست.')}><CircleHelp size={14}/></button></div><div className="detail-row"><span>Market</span><strong>Forex / CFD</strong></div><div className="detail-row"><span>Session</span><strong>Historical</strong></div><div className="detail-row"><span>Bars loaded</span><strong>{candles.length.toLocaleString()}</strong></div><div className="detail-row"><span>Replay state</span><strong>{playing?'Playing':'Paused'}</strong></div></div><div className="sidebar-section"><div className="sidebar-section-title"><strong>Practice order</strong><SlidersHorizontal size={14}/></div><p className="side-hint">ثبت معامله‌ی آزمایشی روی آخرین کندل قابل مشاهده</p><div className="order-buttons"><button className="buy-button" onClick={()=>recordTrade('LONG')}><TrendingUp size={15}/> Buy</button><button className="sell-button" onClick={()=>recordTrade('SHORT')}><TrendingDown size={15}/> Sell</button></div><button className="full-width-action" onClick={()=>setActiveTab('List of Trades')}>Open trade log</button></div><div className="sidebar-section sidebar-note"><ShieldCheck size={15}/><span>این نسخه شبیه‌ساز آموزشی است؛ قیمت‌ها نمونه‌اند مگر اینکه CSV خودت را وارد کنی.</span></div></aside>}
     </div>
     {notice && <div className="toast" role="status"><AlertTriangle size={16}/><span>{notice}</span><button onClick={()=>setNotice('')} aria-label="Dismiss"><X size={15}/></button></div>}
-    {showImport && <div className="modal-backdrop" onClick={()=>setShowImport(false)}><section className="import-modal" role="dialog" aria-modal="true" aria-labelledby="import-title" onClick={e=>e.stopPropagation()}><div className="modal-head"><div><strong id="import-title">Import historical data</strong><span>CSV · OHLC candles</span></div><button className="top-icon" onClick={()=>setShowImport(false)} aria-label="Close"><X size={18}/></button></div><label className="file-drop"><FileUp size={28}/><strong>Choose a CSV file</strong><span>Required: DATE / DTYYYYMMDD, OPEN, HIGH, LOW, CLOSE. Optional: TIME, VOL.</span>{importProgress !== null && <div className="import-progress"><div className="import-progress-label"><span>Streaming CSV…</span><strong>{importProgress}%</strong></div><div className="import-progress-track"><div className="import-progress-fill" style={{ width: `${importProgress}%` }} /></div></div>}<input type="file" accept=".csv,.txt,text/csv,text/plain" onChange={e=>importFile(e.target.files?.[0])}/></label><div className="modal-tip">CSV data is parsed locally in your browser. Dates without a timezone are interpreted as UTC. Use clean, chronologically sortable historical data for meaningful results.</div></section></div>}
+    {showImport && <div className="modal-backdrop" onClick={()=>setShowImport(false)}><section className="import-modal" role="dialog" aria-modal="true" aria-labelledby="import-title" onClick={e=>e.stopPropagation()}><div className="modal-head"><div><strong id="import-title">Import historical data</strong><span>CSV · OHLC candles</span></div><button className="top-icon" onClick={()=>setShowImport(false)} aria-label="Close"><X size={18}/></button></div><label className="file-drop"><FileUp size={28}/><strong>Choose a CSV file</strong><span>Required: DATE / DTYYYYMMDD, OPEN, HIGH, LOW, CLOSE. Optional: TIME, VOL.</span>{importProgress !== null && <div className="import-progress"><div className="import-progress-label"><span>Streaming CSV locally…</span><strong>{importProgress}%</strong></div><div className="import-progress-track"><div className="import-progress-fill" style={{ width: `${importProgress}%` }} /></div></div>}<input type="file" accept=".csv,.txt,text/csv,text/plain" onChange={e=>importFile(e.target.files?.[0])}/></label>
+      <div className="modal-tip">Local import draws the chart immediately, but very large files can still use substantial browser memory.</div>
+      <div style={{display:'grid',gap:10,marginTop:14}}>
+        <label style={{display:'grid',gap:6,fontSize:12,color:'var(--muted)'}}>Private Blob upload key<input type="password" autoComplete="off" value={uploadKey} onChange={e=>setUploadKey(e.target.value)} placeholder="Enter your private upload key" style={{width:'100%',padding:10,borderRadius:8,border:'1px solid var(--border)',background:'var(--panel)',color:'var(--text)'}} /></label>
+        <label className="file-drop"><Upload size={25}/><strong>Upload a large CSV to private cloud storage</strong><span>Multipart upload with progress · maximum 1 GB</span>{blobUploadProgress !== null && <div className="import-progress"><div className="import-progress-label"><span>Uploading to Blob…</span><strong>{blobUploadProgress}%</strong></div><div className="import-progress-track"><div className="import-progress-fill" style={{ width: `${blobUploadProgress}%` }} /></div></div>}<input type="file" accept=".csv,.txt,text/csv,text/plain" onChange={e=>uploadFileToBlob(e.target.files?.[0])}/></label>
+        {storedBlob && <div className="modal-tip">Stored privately: {storedBlob.pathname} · {(storedBlob.size / (1024*1024)).toFixed(1)} MB</div>}
+        <div className="modal-tip">Cloud storage keeps the original file safely, but chunked cloud reading/backtesting is the next step. Uploading alone does not yet load a huge dataset into the chart.</div>
+      </div></section></div>}
     <footer className="app-footer"><span>CHARTGOLD <i>·</i> BACKTEST LAB</span><span><span className="status-dot"/> Historical data only · Prototype</span></footer>
   </main>
 }
