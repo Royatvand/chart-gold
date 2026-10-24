@@ -76,6 +76,7 @@ function App() {
   const [trendLines, setTrendLines] = useState<{ a: { time: number; price: number }; b: { time: number; price: number } }[]>([])
   const [fibDrawings, setFibDrawings] = useState<{ a: { time: number; price: number }; b: { time: number; price: number } }[]>([])
   const [pendingAnchor, setPendingAnchor] = useState<{ time: number; price: number } | null>(null)
+  const [, setDrawingRenderVersion] = useState(0)
   const [redo, setRedo] = useState<number[]>([])
   const [hideDrawings, setHideDrawings] = useState(false)
   const [indicators, setIndicators] = useState({ fast: false, slow: false })
@@ -164,6 +165,7 @@ function App() {
       const idx = indexByTime(shownRef.current, Number(param.time))
       setHoverIdx(prev => (prev === idx ? prev : idx >= 0 ? idx : null))
     })
+    chart.timeScale().subscribeVisibleLogicalRangeChange(() => setDrawingRenderVersion(v => v + 1))
     chart.subscribeClick(param => {
       if (!param.point || param.time === undefined) return
       if (selectingRef.current) {
