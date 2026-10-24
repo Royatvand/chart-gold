@@ -363,6 +363,29 @@ function App() {
     setBottomOpen(true); setBottomTab('tester'); setTesterTab('trades')
     setNotice(`معامله ${side === 'LONG' ? 'خرید' : 'فروش'} ثبت شد؛ خروجی خودکار برای این معامله هنوز فعال نیست.`)
   }
+  const connectExistingBlob = useCallback(async () => {
+    if (!uploadKey.trim()) { setNotice('کلید آپلود را وارد کن؛ برای فایل خصوصی لازم است.'); return }
+    setCloudProcessing(true)
+    setNotice('در حال پیدا کردن XAUUSD.csv ذخیره‌شده در Blob…')
+    try {
+      const response = await fetch('/api/blob-process', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-upload-key': uploadKey.trim() },
+        body: JSON.stringify({ timeframeSec: tfSec, fastPeriod: Number(fastPeriod), slowPeriod: Number(slowPeriod), rr: Number(rr), riskPct: Number(riskPct), commission: Number(commission) }),
+      })
+      const payload = await response.json() as { error?: string; pathname?: string; rawCandles?: number; chartBars?: number; candles?: Candle[]; trades?: ClosedTrade[]; summary?: { totalTrades: number; wins: number; losses: number; netR: number; grossWin: number; grossLoss: number; profitFactor: number | null; winRate: number } }
+      if (!response.ok || !payload.candles || !payload.summary || !payload.trades) throw new Error(payload.error || 'Could not connect existing Blob CSV')
+      const name = (payload.pathname || 'XAUUSD.csv').split('/').pop() || 'XAUUSD.csv'
+      setCandles(payload.candles); setFileName(name); setVisibleCount(payload.candles.length)
+      setStoredBlob({ pathname: payload.pathname || name, size: 0, url: '' })
+      setCloudSummary(payload.summary); setTestResults(payload.trades); setTrades([]); setDrawings([]); setRedo([])
+      setTesterTab('overview'); setBottomOpen(true); setBottomTab('tester'); setShowImport(false)
+      setNotice('به دیتای ذخیره‌شده وصل شد: ' + (payload.rawCandles?.toLocaleString() || '—') + ' کندل ورودی؛ ' + (payload.chartBars?.toLocaleString() || '—') + ' کندل پردازش شد.')
+    } catch (e) {
+      setNotice(e instanceof Error ? e.message : 'اتصال به دیتای ذخیره‌شده ناموفق بود.')
+    } finally { setCloudProcessing(false) }
+  }, [uploadKey, tfSec, fastPeriod, slowPeriod, rr, riskPct, commission])
+
   const runTest = async () => {
     if (Number(fastPeriod) < 2 || Number(slowPeriod) <= Number(fastPeriod) || Number(slowPeriod) > 200) { setNotice('میانگین سریع باید حداقل ۲ و کوچک‌تر از میانگین کند باشد (حداکثر ۲۰۰).'); return }
     if (storedBlob) {
@@ -595,6 +618,7 @@ function App() {
     {showImport && <div className="modal-backdrop" onClick={() => setShowImport(false)}><section className="import-modal" role="dialog" aria-modal="true" aria-labelledby="import-title" onClick={e => e.stopPropagation()}><div className="modal-head"><div><strong id="import-title">Import historical data</strong><span>CSV · OHLC candles</span></div><button className="tv-btn tv-narrow" onClick={() => setShowImport(false)} aria-label="Close"><X size={18}/></button></div><label className="file-drop"><FileUp size={28}/><strong>Choose a CSV file</strong><span>Required: DATE / DTYYYYMMDD, OPEN, HIGH, LOW, CLOSE. Optional: TIME, VOL.</span>{importProgress !== null && <div className="import-progress"><div className="import-progress-label"><span>Streaming CSV locally…</span><strong>{importProgress}%</strong></div><div className="import-progress-track"><div className="import-progress-fill" style={{ width: `${importProgress}%` }} /></div></div>}<input type="file" accept=".csv,.txt,text/csv,text/plain" onChange={e => importFile(e.target.files?.[0])}/></label>
       <div className="modal-tip">Local import draws the chart immediately, but very large files can still use substantial browser memory.</div>
       <div style={{ display: 'grid', gap: 10, marginTop: 14 }}>
+        <button className="tv-primary" onClick={connectExistingBlob} disabled={cloudProcessing || blobUploadProgress !== null}>{cloudProcessing ? 'Finding and processing saved CSV…' : 'Connect existing private CSV (no re-upload)'}</button>
         <label style={{ display: 'grid', gap: 6, fontSize: 12, color: 'var(--muted)' }}>Private Blob upload key<input type="password" autoComplete="off" value={uploadKey} onChange={e => setUploadKey(e.target.value)} placeholder="Enter your private upload key" style={{ width: '100%', padding: 10, borderRadius: 8, border: '1px solid var(--border)', background: 'var(--panel)', color: 'var(--text)' }} /></label>
         <label className="file-drop"><Upload size={25}/><strong>Upload a large CSV to private cloud storage</strong><span>Multipart upload with progress · maximum 1 GB</span>{blobUploadProgress !== null && <div className="import-progress"><div className="import-progress-label"><span>Uploading to Blob…</span><strong>{blobUploadProgress}%</strong></div><div className="import-progress-track"><div className="import-progress-fill" style={{ width: `${blobUploadProgress}%` }} /></div></div>}<input type="file" accept=".csv,.txt,text/csv,text/plain" onChange={e => uploadFileToBlob(e.target.files?.[0])}/></label>
         {storedBlob && <div className="modal-tip">Stored privately: {storedBlob.pathname} · {(storedBlob.size / (1024 * 1024)).toFixed(1)} MB</div>}
