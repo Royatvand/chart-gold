@@ -88,6 +88,8 @@ function App() {
   const [blobUploadProgress, setBlobUploadProgress] = useState<number | null>(null)
   const [uploadKey, setUploadKey] = useState('')
   const [storedBlob, setStoredBlob] = useState<{ pathname: string; size: number; url: string } | null>(null)
+  const [cloudProcessing, setCloudProcessing] = useState(false)
+  const [cloudSummary, setCloudSummary] = useState<{ totalTrades: number; wins: number; losses: number; netR: number; grossWin: number; grossLoss: number; profitFactor: number | null; winRate: number } | null>(null)
   const [trades, setTrades] = useState<Trade[]>([])
   const [fastPeriod, setFastPeriod] = useState('9')
   const [slowPeriod, setSlowPeriod] = useState('21')
@@ -118,12 +120,13 @@ function App() {
   const activeStats = dayStats(shown, shown.length - 1, dayN)
 
   const closed = testResults ?? (trades.filter(t => t.result !== 'OPEN') as ClosedTrade[])
-  const wins = closed.filter(t => t.r > 0).length
-  const losses = closed.length - wins
-  const netR = closed.reduce((sum, t) => sum + t.r, 0)
-  const grossWin = closed.filter(t => t.r > 0).reduce((sum, t) => sum + t.r, 0)
-  const grossLoss = Math.abs(closed.filter(t => t.r < 0).reduce((sum, t) => sum + t.r, 0))
-  const profitFactor = grossLoss ? grossWin / grossLoss : grossWin ? Infinity : 0
+  const wins = cloudSummary?.wins ?? closed.filter(t => t.r > 0).length
+  const losses = cloudSummary?.losses ?? Math.max(0, closed.length - closed.filter(t => t.r > 0).length)
+  const netR = cloudSummary?.netR ?? closed.reduce((sum, t) => sum + t.r, 0)
+  const grossWin = cloudSummary?.grossWin ?? closed.filter(t => t.r > 0).reduce((sum, t) => sum + t.r, 0)
+  const grossLoss = cloudSummary?.grossLoss ?? Math.abs(closed.filter(t => t.r < 0).reduce((sum, t) => sum + t.r, 0))
+  const totalTrades = cloudSummary?.totalTrades ?? closed.length
+  const profitFactor = cloudSummary ? (cloudSummary.profitFactor === null ? Infinity : cloudSummary.profitFactor) : grossLoss ? grossWin / grossLoss : grossWin ? Infinity : 0
 
   // Refs mirror state for chart event handlers that are subscribed once.
   const toolRef = useRef(tool); toolRef.current = tool
@@ -301,7 +304,8 @@ function App() {
         onUploadProgress: ({ percentage }) => setBlobUploadProgress(Math.round(percentage)),
       })
       setStoredBlob({ pathname: blob.pathname, size: file.size, url: blob.url })
-      setNotice(`فایل ${file.name} به فضای خصوصی Blob آپلود شد. برای نمایش و بک‌تست چندمیلیون کندل، مرحلهٔ خواندن قطعه‌ای هنوز لازم است.`)
+      setCloudSummary(null); setTestResults(null)
+      setNotice(`فایل ${file.name} در فضای خصوصی ذخیره شد. حالا «Analyze full cloud CSV» را بزن تا سرور فایل را به‌صورت جریانی پردازش کند؛ محدودیت زمان اجرای سرور همچنان ممکن است روی فایل‌های بسیار بزرگ اثر بگذارد.`)
     } catch (e) {
       setNotice(e instanceof Error ? e.message : 'آپلود فایل ناموفق بود.')
     } finally { setBlobUploadProgress(null) }
@@ -312,14 +316,14 @@ function App() {
     try {
       const parsed = await parseCsvFile(file, setImportProgress)
       setTimeframe(tfForBase(detectBaseSec(parsed)))
-      setCandles(parsed); setFileName(file.name); setTestResults(null); setTrades([]); setDrawings([]); setRedo([])
+      setCandles(parsed); setFileName(file.name); setStoredBlob(null); setCloudSummary(null); setTestResults(null); setTrades([]); setDrawings([]); setRedo([])
       setShowImport(false); setNotice(`${parsed.length.toLocaleString()} کندل وارد شد.`)
     } catch (e) {
       setNotice(e instanceof Error ? e.message : 'خطا در خواندن CSV')
     } finally { setImportProgress(null) }
   }, [])
   const resetSample = () => {
-    setCandles(demos['XAUUSD']); setFileName(''); setSymbol('XAUUSD'); setTimeframe('15m'); setTrades([]); setTestResults(null)
+    setCandles(demos['XAUUSD']); setFileName(''); setStoredBlob(null); setCloudSummary(null); setSymbol('XAUUSD'); setTimeframe('15m'); setTrades([]); setTestResults(null)
     setDrawings([]); setRedo([]); setMenu(null); setNotice('دیتای نمونه بازنشانی شد.')
   }
   const recordTrade = (side: Side) => {
@@ -332,10 +336,26 @@ function App() {
     setBottomOpen(true); setBottomTab('tester'); setTesterTab('trades')
     setNotice(`معامله ${side === 'LONG' ? 'خرید' : 'فروش'} ثبت شد؛ خروجی خودکار برای این معامله هنوز فعال نیست.`)
   }
-  const runTest = () => {
+  const runTest = async () => {
     if (Number(fastPeriod) < 2 || Number(slowPeriod) <= Number(fastPeriod) || Number(slowPeriod) > 200) { setNotice('میانگین سریع باید حداقل ۲ و کوچک‌تر از میانگین کند باشد (حداکثر ۲۰۰).'); return }
+    if (storedBlob) {
+      if (!uploadKey.trim()) { setNotice('برای پردازش فایل خصوصی، کلید آپلود را دوباره وارد کن.'); return }
+      setCloudProcessing(true)
+      try {
+        const response = await fetch('/api/blob-process', { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-upload-key': uploadKey.trim() }, body: JSON.stringify({ pathname: storedBlob.pathname, timeframeSec: tfSec, fastPeriod: Number(fastPeriod), slowPeriod: Number(slowPeriod), rr: Number(rr), riskPct: Number(riskPct), commission: Number(commission) }) })
+        const payload = await response.json() as { error?: string; candles?: Candle[]; rawCandles?: number; chartBars?: number; trades?: ClosedTrade[]; summary?: { totalTrades: number; wins: number; losses: number; netR: number; grossWin: number; grossLoss: number; profitFactor: number | null; winRate: number } }
+        if (!response.ok || !payload.candles || !payload.summary || !payload.trades) throw new Error(payload.error || 'Cloud CSV processing failed')
+        setCandles(payload.candles); setFileName(storedBlob.pathname.split('/').pop() || 'cloud-data.csv'); setVisibleCount(payload.candles.length)
+        setCloudSummary(payload.summary); setTestResults(payload.trades); setTrades([]); setDrawings([]); setRedo([])
+        setTesterTab('overview'); setBottomOpen(true); setBottomTab('tester')
+        setNotice(`پردازش ابری تمام شد: ${payload.rawCandles?.toLocaleString()} کندل ورودی، ${payload.chartBars?.toLocaleString()} کندل تایم‌فریم؛ چارت آخرین ۵٬۰۰۰ کندل را نشان می‌دهد.`)
+      } catch (e) {
+        setNotice(e instanceof Error ? e.message : 'پردازش ابری ناموفق بود.')
+      } finally { setCloudProcessing(false) }
+      return
+    }
     const result = runBacktest(data, Number(fastPeriod), Number(slowPeriod), Number(rr), Number(riskPct), Number(commission))
-    setTestResults(result); setTesterTab('overview'); setBottomOpen(true); setBottomTab('tester')
+    setCloudSummary(null); setTestResults(result); setTesterTab('overview'); setBottomOpen(true); setBottomTab('tester')
     setNotice(`بک‌تست تمام شد؛ ${result.length} معامله بررسی شد.`)
   }
   const exportTrades = () => {
@@ -476,8 +496,8 @@ function App() {
             </div>}
             {testerTab === 'overview' && <div className="tv-metrics">
               <div><span>Net profit (R)</span><strong className={netR >= 0 ? 'up' : 'down'}>{sgn(netR)}{Math.abs(netR).toFixed(2)}R</strong></div>
-              <div><span>Total trades</span><strong>{closed.length}</strong></div>
-              <div><span>Win rate</span><strong>{closed.length ? (wins / closed.length * 100).toFixed(1) : '0.0'}%</strong></div>
+              <div><span>Total trades</span><strong>{totalTrades.toLocaleString()}</strong></div>
+              <div><span>Win rate</span><strong>{(cloudSummary?.winRate ?? (totalTrades ? wins / totalTrades * 100 : 0)).toFixed(1)}%</strong></div>
               <div><span>Profit factor</span><strong>{profitFactor === Infinity ? '∞' : profitFactor.toFixed(2)}</strong></div>
               <div><span>Wins / Losses</span><strong><span className="up">{wins}</span> / <span className="down">{losses}</span></strong></div>
               <div><span>Data</span><strong className="small">{isDemo ? 'Sample' : 'Imported CSV'}</strong></div>
@@ -551,7 +571,8 @@ function App() {
         <label style={{ display: 'grid', gap: 6, fontSize: 12, color: 'var(--muted)' }}>Private Blob upload key<input type="password" autoComplete="off" value={uploadKey} onChange={e => setUploadKey(e.target.value)} placeholder="Enter your private upload key" style={{ width: '100%', padding: 10, borderRadius: 8, border: '1px solid var(--border)', background: 'var(--panel)', color: 'var(--text)' }} /></label>
         <label className="file-drop"><Upload size={25}/><strong>Upload a large CSV to private cloud storage</strong><span>Multipart upload with progress · maximum 1 GB</span>{blobUploadProgress !== null && <div className="import-progress"><div className="import-progress-label"><span>Uploading to Blob…</span><strong>{blobUploadProgress}%</strong></div><div className="import-progress-track"><div className="import-progress-fill" style={{ width: `${blobUploadProgress}%` }} /></div></div>}<input type="file" accept=".csv,.txt,text/csv,text/plain" onChange={e => uploadFileToBlob(e.target.files?.[0])}/></label>
         {storedBlob && <div className="modal-tip">Stored privately: {storedBlob.pathname} · {(storedBlob.size / (1024 * 1024)).toFixed(1)} MB</div>}
-        <div className="modal-tip">Cloud storage keeps the original file safely, but chunked cloud reading/backtesting is the next step. Uploading alone does not yet load a huge dataset into the chart.</div>
+        {storedBlob && <button className="tv-primary" onClick={runTest} disabled={cloudProcessing || blobUploadProgress !== null}>{cloudProcessing ? 'Processing cloud CSV…' : 'Analyze full cloud CSV'}</button>}
+        <div className="modal-tip">Cloud analysis streams the private CSV on the server and returns the last 5,000 chart bars plus full-dataset backtest statistics. Very large files may exceed the serverless function time limit; this is not a persistent background job.</div>
       </div></section></div>}
   </main>
 }
