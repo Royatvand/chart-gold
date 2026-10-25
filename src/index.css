@@ -153,3 +153,43 @@
   .tv-notes-editor { min-height:130px; font-size:12px; }
   .annotation-icon-grid { grid-template-columns:repeat(4,minmax(0,1fr)); }
 }
+
+
+/* RSI oscillator pane (14), synchronized with the main chart's visible range */
+.tv-chart-wrap-rsi { min-height: 330px; }
+.tv-chart-wrap.tv-chart-wrap-rsi .tv-chart {
+  height: calc(100% - 124px) !important;
+  bottom: auto !important;
+}
+.tv-chart-wrap.tv-chart-wrap-rsi .drawing-overlay {
+  height: calc(100% - 124px) !important;
+  bottom: auto !important;
+}
+.tv-rsi-pane {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 122px;
+  background: #131722;
+  border-top: 1px solid #2a2e39;
+  z-index: 5;
+}
+.tv-rsi-chart { position: absolute; inset: 0; width: 100%; height: 100%; }
+.tv-rsi-title {
+  position: absolute;
+  top: 6px;
+  left: 10px;
+  z-index: 2;
+  color: #a78bfa;
+  font-size: 11px;
+  font-weight: 600;
+  pointer-events: none;
+}
+.tv-chart-wrap-rsi .tv-legend { position: relative; z-index: 6; pointer-events: none; }
+@media(max-width:600px) {
+  .tv-chart-wrap-rsi { min-height: 330px; }
+  .tv-chart-wrap.tv-chart-wrap-rsi .tv-chart,
+  .tv-chart-wrap.tv-chart-wrap-rsi .drawing-overlay { height: calc(100% - 110px) !important; }
+  .tv-rsi-pane { height: 108px; }
+}
