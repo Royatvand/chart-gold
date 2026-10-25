@@ -1,0 +1,90 @@
+/* ChartGold — TradingView dark palette layer
+   Put this file at src/tradingview-theme.css and import it AFTER './index.css' in src/main.tsx:
+     import './index.css'
+     import './tradingview-theme.css'
+*/
+
+:root {
+  color-scheme: dark;
+
+  /* TradingView dark tokens */
+  --tv-bg: #131722;
+  --tv-panel: #1e222d;
+  --tv-hover: #2a2e39;
+  --tv-border: #2a2e39;
+  --tv-input-border: #363b48;
+  --tv-text: #d1d4dc;
+  --tv-text-strong: #e0e3eb;
+  --tv-icon: #b2b5be;
+  --tv-muted: #787b86;
+  --tv-blue: #2962ff;
+  --tv-blue-soft: #82b1ff;
+  --tv-up: #089981;
+  --tv-down: #f23645;
+  --tv-orange: #ff9800;
+
+  /* Map the app's existing variables onto the palette */
+  --bg: var(--tv-bg);
+  --surface: var(--tv-panel);
+  --raised: var(--tv-hover);
+  --line: var(--tv-border);
+  --text: var(--tv-text);
+  --muted: var(--tv-muted);
+  --blue: var(--tv-blue);
+  --green: var(--tv-up);
+  --red: var(--tv-down);
+
+  /* These two are referenced by inline styles in App.tsx (import dialog) but were never defined */
+  --border: var(--tv-input-border);
+  --panel: var(--tv-panel);
+}
+
+/* Time-range buttons (1D, 5D, 1M ...) used the class "tv-range", which had no styles,
+   so they rendered as light-grey default browser buttons. */
+.tv-range {
+  padding: 5px 7px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--tv-muted);
+  font-size: 10px;
+  white-space: nowrap;
+}
+.tv-range:hover { background: var(--tv-hover); color: var(--tv-text-strong); }
+
+/* Native form controls on the dark theme */
+select option { background: var(--tv-panel); color: var(--tv-text); }
+input::placeholder { color: var(--tv-muted); opacity: 1; }
+input:-webkit-autofill {
+  -webkit-text-fill-color: var(--tv-text);
+  -webkit-box-shadow: 0 0 0 1000px var(--tv-panel) inset;
+  caret-color: var(--tv-text);
+}
+
+/* TradingView-style focus and selection */
+button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible {
+  outline: 2px solid var(--tv-blue);
+  outline-offset: 1px;
+}
+::selection { background: rgba(41, 98, 255, .35); color: #fff; }
+
+/* Dark, thin scrollbars like TradingView */
+* { scrollbar-width: thin; scrollbar-color: #363c4e transparent; }
+*::-webkit-scrollbar { width: 8px; height: 8px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb { background: #363c4e; border-radius: 4px; }
+*::-webkit-scrollbar-thumb:hover { background: #4a505f; }
+*::-webkit-scrollbar-corner { background: transparent; }
+
+/* Consistent TradingView text colours for headings / strong values */
+.tv-legend-title strong, .tv-panel-title, .tv-menu-title { color: var(--tv-text-strong); }
+
+/* Menus and dialogs share the TradingView popup surface */
+.tv-menu, .tv-dialog, .import-modal, .symbol-popover {
+  background: var(--tv-panel);
+  border-color: #434957;
+}
+.modal-backdrop { background: rgba(0, 0, 0, .6); }
+
+/* Replay speed menu opens upward from the replay bar */
+.tv-menu.up { top: auto; bottom: calc(100% + 5px); }
