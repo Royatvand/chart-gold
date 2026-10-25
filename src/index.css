@@ -116,3 +116,40 @@
 .drawing-overlay text{font-family:inherit;paint-order:stroke;stroke:#131722;stroke-width:2px;stroke-linejoin:round}
 
 .alert-form{display:grid;gap:9px;padding:14px}.alert-form label{font-size:11px;color:#aeb2bd}.alert-form input,.alert-form select{width:100%;min-width:0;height:36px;padding:0 10px;border:1px solid #3b4150;border-radius:5px;background:#131722;color:#e0e3eb}.alert-form .tv-primary{justify-content:center;margin-top:4px}.alert-dialog{max-width:420px}
+
+
+/* Lucide vector icons: one consistent optical weight and alignment throughout ChartGold */
+.tv-app svg.lucide {
+  flex: 0 0 auto;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.tv-app button svg.lucide { pointer-events: none; }
+.tv-tool, .tv-rail-btn, .tv-btn { transition: background-color 120ms ease, color 120ms ease, border-color 120ms ease; }
+.tv-tool:focus-visible, .tv-rail-btn:focus-visible, .tv-btn:focus-visible, .tv-primary:focus-visible, .tv-ghost:focus-visible {
+  outline: 2px solid #82b1ff;
+  outline-offset: 2px;
+}
+.tv-notes-wrap { display:flex; flex-direction:column; gap:9px; padding:10px; min-height:0; flex:1; overflow:hidden; }
+.tv-notes-wrap .tv-wl-note { margin:0 2px; font-size:10px; }
+.tv-notes-editor {
+  display:block; width:100%; flex:1; min-height:180px; resize:vertical; padding:12px;
+  border:1px solid #363b48; border-radius:7px; outline:0; background:#171b26;
+  color:#e0e3eb; font:12px/1.65 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  tab-size:2;
+}
+.tv-notes-editor:focus { border-color:#547dce; box-shadow:0 0 0 2px #2962ff24; }
+.tv-notes-editor::placeholder { color:#646b7b; }
+.tv-notes-footer { display:flex; justify-content:space-between; align-items:center; gap:8px; color:#787b86; font-size:10px; }
+.tv-notes-footer span:last-child { display:inline-flex; align-items:center; gap:4px; color:#089981; }
+.annotation-dialog { max-width:420px; }
+.annotation-icon-grid { display:grid; grid-template-columns:repeat(6,minmax(0,1fr)); gap:7px; padding:14px; }
+.annotation-icon-choice { display:grid; place-items:center; aspect-ratio:1; min-width:0; border:1px solid #303644; border-radius:8px; background:#171b26; font-size:22px; cursor:pointer; transition:transform 120ms ease,background 120ms ease,border-color 120ms ease; }
+.annotation-icon-choice:hover { transform:translateY(-1px); background:#252b39; border-color:#547dce; }
+.drawing-overlay .annotation-icon { stroke:none!important; paint-order:normal; font-family:"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif; }
+@media(max-width:600px) {
+  .tv-notes-wrap { padding:8px; }
+  .tv-notes-editor { min-height:130px; font-size:12px; }
+  .annotation-icon-grid { grid-template-columns:repeat(4,minmax(0,1fr)); }
+}
