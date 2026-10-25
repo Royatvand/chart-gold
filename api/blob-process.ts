@@ -29,23 +29,23 @@ function parseTimestamp(dateText: string, timeText: string): number | null {
 
 async function processRequest(request: Request) {
   if (request.method !== 'POST') return Response.json({ error: 'Method not allowed' }, { status: 405 })
+  // Visitors do not need a key: they always get the server-chosen dataset (the newest XAUUSD file in Blob).
+  // Only the owner (valid key) may point the processor at a different blob path.
   const expectedKey = process.env.CHART_GOLD_UPLOAD_KEY
-  if (!expectedKey || request.headers.get('x-upload-key') !== expectedKey) {
-    return Response.json({ error: 'Invalid upload key' }, { status: 401 })
-  }
+  const isOwner = !!expectedKey && request.headers.get('x-upload-key') === expectedKey
 
   let body: Record<string, unknown>
   try { body = await request.json() as Record<string, unknown> } catch {
     return Response.json({ error: 'Invalid JSON body' }, { status: 400 })
   }
 
-  let pathname = typeof body.pathname === 'string' ? body.pathname : ''
+  let pathname = isOwner && typeof body.pathname === 'string' ? body.pathname : ''
   if (!pathname) {
     try {
       const result = await list({ limit: 1000 })
       const candidates = result.blobs.filter(blob => {
         const name = blob.pathname.split('/').pop()?.toLowerCase() || ''
-        return name === 'xauusd.csv' || name === 'xauusd.txt'
+        return /^xauusd.*\.(csv|txt)$/.test(name)
       }).sort((a, b) => new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime())
       if (!candidates.length) return Response.json({ error: 'No saved XAUUSD.csv was found in this Blob store.' }, { status: 404 })
       pathname = candidates[0].pathname

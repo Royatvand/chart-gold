@@ -598,6 +598,7 @@ function App() {
       setNotice(e instanceof Error ? e.message : 'خطا در خواندن CSV')
     } finally { setImportProgress(null) }
   }, [])
+  const keyHeaders = (): Record<string, string> => (uploadKey.trim() ? { 'x-upload-key': uploadKey.trim() } : {})
   const resetSample = () => {
     setCandles(demos['XAUUSD']); setFileName(''); setStoredBlob(null); setCloudSummary(null); setSymbol('XAUUSD'); setTimeframe('15m'); setTrades([]); setTestResults(null)
     setDrawings([]); setTrendLines([]); setFibDrawings([]); setBrushPaths([]); setChartTexts([]); setChartIcons([]); setMeasurements([]); setUndoHistory([]); setRedo([]); setMenu(null); setNotice('دیتای نمونه بازنشانی شد.')
@@ -612,14 +613,13 @@ function App() {
     setBottomOpen(true); setBottomTab('tester'); setTesterTab('trades')
     setNotice(`معامله ${side === 'LONG' ? 'خرید' : 'فروش'} ثبت شد؛ خروجی خودکار برای این معامله هنوز فعال نیست.`)
   }
-  const connectExistingBlob = useCallback(async () => {
-    if (!uploadKey.trim()) { setNotice('کلید آپلود را وارد کن؛ برای فایل خصوصی لازم است.'); return }
+  const connectExistingBlob = useCallback(async (silent = false) => {
     setCloudProcessing(true)
-    setNotice('در حال پیدا کردن XAUUSD.csv ذخیره‌شده در Blob…')
+    if (!silent) setNotice('در حال بارگذاری دیتای ذخیره‌شده…')
     try {
       const response = await fetch('/api/blob-process', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-upload-key': uploadKey.trim() },
+        headers: { 'Content-Type': 'application/json', ...keyHeaders() },
         body: JSON.stringify({ timeframeSec: tfSec, fastPeriod: Number(fastPeriod), slowPeriod: Number(slowPeriod), rr: Number(rr), riskPct: Number(riskPct), commission: Number(commission) }),
       })
       const payload = await response.json() as { error?: string; pathname?: string; rawCandles?: number; chartBars?: number; candles?: Candle[]; trades?: ClosedTrade[]; summary?: { totalTrades: number; wins: number; losses: number; netR: number; grossWin: number; grossLoss: number; profitFactor: number | null; winRate: number } }
@@ -629,19 +629,26 @@ function App() {
       setStoredBlob({ pathname: payload.pathname || name, size: 0, url: '' })
       setCloudSummary(payload.summary); setTestResults(payload.trades); setTrades([]); setDrawings([]); setTrendLines([]); setFibDrawings([]); setBrushPaths([]); setChartTexts([]); setChartIcons([]); setMeasurements([]); setUndoHistory([]); setRedo([])
       setTesterTab('overview'); setBottomOpen(true); setBottomTab('tester'); setShowImport(false)
-      setNotice(`اتصال موفق: ${(payload.rawCandles?.toLocaleString() || '—')} کندل خام به ${(payload.chartBars?.toLocaleString() || '—')} کندل ${timeframe} تجمیع شد. برای سرعت، چارت آخرین ${Math.min(5000, payload.candles.length).toLocaleString()} کندل را نشان می‌دهد؛ آمار بک‌تست روی کل دیتاست محاسبه شده است.`)
+      if (!silent) setNotice(`اتصال موفق: ${(payload.rawCandles?.toLocaleString() || '—')} کندل خام به ${(payload.chartBars?.toLocaleString() || '—')} کندل ${timeframe} تجمیع شد. برای سرعت، چارت آخرین ${Math.min(5000, payload.candles.length).toLocaleString()} کندل را نشان می‌دهد؛ آمار بک‌تست روی کل دیتاست محاسبه شده است.`)
     } catch (e) {
-      setNotice(e instanceof Error ? e.message : 'اتصال به دیتای ذخیره‌شده ناموفق بود.')
+      if (!silent) setNotice(e instanceof Error ? e.message : 'اتصال به دیتای ذخیره‌شده ناموفق بود.')
     } finally { setCloudProcessing(false) }
   }, [uploadKey, tfSec, fastPeriod, slowPeriod, rr, riskPct, commission])
+
+  // Visitors get the hosted dataset automatically; no key needed. Falls back to the sample data if none is stored.
+  const autoLoaded = useRef(false)
+  useEffect(() => {
+    if (autoLoaded.current) return
+    autoLoaded.current = true
+    void connectExistingBlob(true)
+  }, [connectExistingBlob])
 
   const runTest = async () => {
     if (Number(fastPeriod) < 2 || Number(slowPeriod) <= Number(fastPeriod) || Number(slowPeriod) > 200) { setNotice('میانگین سریع باید حداقل ۲ و کوچک‌تر از میانگین کند باشد (حداکثر ۲۰۰).'); return }
     if (storedBlob) {
-      if (!uploadKey.trim()) { setNotice('برای پردازش فایل خصوصی، کلید آپلود را دوباره وارد کن.'); return }
       setCloudProcessing(true)
       try {
-        const response = await fetch('/api/blob-process', { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-upload-key': uploadKey.trim() }, body: JSON.stringify({ pathname: storedBlob.pathname, timeframeSec: tfSec, fastPeriod: Number(fastPeriod), slowPeriod: Number(slowPeriod), rr: Number(rr), riskPct: Number(riskPct), commission: Number(commission) }) })
+        const response = await fetch('/api/blob-process', { method: 'POST', headers: { 'Content-Type': 'application/json', ...keyHeaders() }, body: JSON.stringify({ pathname: storedBlob.pathname, timeframeSec: tfSec, fastPeriod: Number(fastPeriod), slowPeriod: Number(slowPeriod), rr: Number(rr), riskPct: Number(riskPct), commission: Number(commission) }) })
         const payload = await response.json() as { error?: string; candles?: Candle[]; rawCandles?: number; chartBars?: number; trades?: ClosedTrade[]; summary?: { totalTrades: number; wins: number; losses: number; netR: number; grossWin: number; grossLoss: number; profitFactor: number | null; winRate: number } }
         if (!response.ok || !payload.candles || !payload.summary || !payload.trades) throw new Error(payload.error || 'Cloud CSV processing failed')
         setCandles(payload.candles); setFileName(storedBlob.pathname.split('/').pop() || 'cloud-data.csv'); setVisibleCount(payload.candles.length)
@@ -981,9 +988,9 @@ function App() {
     {showImport && <div className="modal-backdrop" onClick={() => setShowImport(false)}><section className="import-modal" role="dialog" aria-modal="true" aria-labelledby="import-title" onClick={e => e.stopPropagation()}><div className="modal-head"><div><strong id="import-title">Import historical data</strong><span>CSV · OHLC candles</span></div><button className="tv-btn tv-narrow" onClick={() => setShowImport(false)} aria-label="Close"><X size={18}/></button></div><label className="file-drop"><FileUp size={28}/><strong>Choose a CSV file</strong><span>Required: DATE / DTYYYYMMDD, OPEN, HIGH, LOW, CLOSE. Optional: TIME, VOL.</span>{importProgress !== null && <div className="import-progress"><div className="import-progress-label"><span>Streaming CSV locally…</span><strong>{importProgress}%</strong></div><div className="import-progress-track"><div className="import-progress-fill" style={{ width: `${importProgress}%` }} /></div></div>}<input type="file" accept=".csv,.txt,text/csv,text/plain" onChange={e => importFile(e.target.files?.[0])}/></label>
       <div className="modal-tip">Local import draws the chart immediately, but very large files can still use substantial browser memory.</div>
       <div style={{ display: 'grid', gap: 10, marginTop: 14 }}>
-        <button className="tv-primary" onClick={connectExistingBlob} disabled={cloudProcessing || blobUploadProgress !== null}>{cloudProcessing ? 'Finding and processing saved CSV…' : 'Connect existing private CSV (no re-upload)'}</button>
-        <label style={{ display: 'grid', gap: 6, fontSize: 12, color: 'var(--muted)' }}>Private Blob upload key<input type="password" autoComplete="off" value={uploadKey} onChange={e => setUploadKey(e.target.value)} placeholder="Enter your private upload key" style={{ width: '100%', padding: 10, borderRadius: 8, border: '1px solid var(--border)', background: 'var(--panel)', color: 'var(--text)' }} /></label>
-        <label className="file-drop"><Upload size={25}/><strong>Upload a large CSV to private cloud storage</strong><span>Multipart upload with progress · maximum 1 GB</span>{blobUploadProgress !== null && <div className="import-progress"><div className="import-progress-label"><span>Uploading to Blob…</span><strong>{blobUploadProgress}%</strong></div><div className="import-progress-track"><div className="import-progress-fill" style={{ width: `${blobUploadProgress}%` }} /></div></div>}<input type="file" accept=".csv,.txt,text/csv,text/plain" onChange={e => uploadFileToBlob(e.target.files?.[0])}/></label>
+        <button className="tv-primary" onClick={() => connectExistingBlob()} disabled={cloudProcessing || blobUploadProgress !== null}>{cloudProcessing ? 'Loading saved data…' : 'Reload hosted data'}</button>
+        <label style={{ display: 'grid', gap: 6, fontSize: 12, color: 'var(--muted)' }}>Owner only: upload key (needed just to upload new data)<input type="password" autoComplete="off" value={uploadKey} onChange={e => setUploadKey(e.target.value)} placeholder="Enter your private upload key" style={{ width: '100%', padding: 10, borderRadius: 8, border: '1px solid var(--border)', background: 'var(--panel)', color: 'var(--text)' }} /></label>
+        <label className="file-drop"><Upload size={25}/><strong>Owner: upload a new CSV to cloud storage</strong><span>Multipart upload with progress · maximum 1 GB</span>{blobUploadProgress !== null && <div className="import-progress"><div className="import-progress-label"><span>Uploading to Blob…</span><strong>{blobUploadProgress}%</strong></div><div className="import-progress-track"><div className="import-progress-fill" style={{ width: `${blobUploadProgress}%` }} /></div></div>}<input type="file" accept=".csv,.txt,text/csv,text/plain" onChange={e => uploadFileToBlob(e.target.files?.[0])}/></label>
         {storedBlob && <div className="modal-tip">Stored privately: {storedBlob.pathname} · {(storedBlob.size / (1024 * 1024)).toFixed(1)} MB</div>}
         {storedBlob && <button className="tv-primary" onClick={runTest} disabled={cloudProcessing || blobUploadProgress !== null}>{cloudProcessing ? 'Processing cloud CSV…' : 'Analyze full cloud CSV'}</button>}
         <div className="modal-tip">Cloud analysis streams the private CSV on the server and returns the last 5,000 chart bars plus full-dataset backtest statistics. Very large files may exceed the serverless function time limit; this is not a persistent background job.</div>
