@@ -475,8 +475,7 @@ function App() {
         setCloudSummary(payload.summary)
         setTestResults(payload.trades)
         setTrades([])
-        setDrawings([])
-        setRedo([])
+        setDrawings([]); setTrendLines([]); setFibDrawings([]); setBrushPaths([]); setChartTexts([]); setChartIcons([]); setMeasurements([]); setUndoHistory([]); setRedo([])
         setTesterTab('overview')
         setBottomOpen(true)
         setBottomTab('tester')
@@ -532,7 +531,7 @@ function App() {
       const name = (payload.pathname || 'XAUUSD.csv').split('/').pop() || 'XAUUSD.csv'
       setCandles(payload.candles); setFileName(name); setVisibleCount(payload.candles.length)
       setStoredBlob({ pathname: payload.pathname || name, size: 0, url: '' })
-      setCloudSummary(payload.summary); setTestResults(payload.trades); setTrades([]); setDrawings([]); setRedo([])
+      setCloudSummary(payload.summary); setTestResults(payload.trades); setTrades([]); setDrawings([]); setTrendLines([]); setFibDrawings([]); setBrushPaths([]); setChartTexts([]); setChartIcons([]); setMeasurements([]); setUndoHistory([]); setRedo([])
       setTesterTab('overview'); setBottomOpen(true); setBottomTab('tester'); setShowImport(false)
       setNotice(`اتصال موفق: ${(payload.rawCandles?.toLocaleString() || '—')} کندل خام به ${(payload.chartBars?.toLocaleString() || '—')} کندل ${timeframe} تجمیع شد. برای سرعت، چارت آخرین ${Math.min(5000, payload.candles.length).toLocaleString()} کندل را نشان می‌دهد؛ آمار بک‌تست روی کل دیتاست محاسبه شده است.`)
     } catch (e) {
@@ -550,7 +549,7 @@ function App() {
         const payload = await response.json() as { error?: string; candles?: Candle[]; rawCandles?: number; chartBars?: number; trades?: ClosedTrade[]; summary?: { totalTrades: number; wins: number; losses: number; netR: number; grossWin: number; grossLoss: number; profitFactor: number | null; winRate: number } }
         if (!response.ok || !payload.candles || !payload.summary || !payload.trades) throw new Error(payload.error || 'Cloud CSV processing failed')
         setCandles(payload.candles); setFileName(storedBlob.pathname.split('/').pop() || 'cloud-data.csv'); setVisibleCount(payload.candles.length)
-        setCloudSummary(payload.summary); setTestResults(payload.trades); setTrades([]); setDrawings([]); setRedo([])
+        setCloudSummary(payload.summary); setTestResults(payload.trades); setTrades([]); setDrawings([]); setTrendLines([]); setFibDrawings([]); setBrushPaths([]); setChartTexts([]); setChartIcons([]); setMeasurements([]); setUndoHistory([]); setRedo([])
         setTesterTab('overview'); setBottomOpen(true); setBottomTab('tester')
         setNotice(`پردازش ابری تمام شد: ${payload.rawCandles?.toLocaleString()} کندل ورودی، ${payload.chartBars?.toLocaleString()} کندل تایم‌فریم؛ چارت آخرین ۵٬۰۰۰ کندل را نشان می‌دهد.`)
       } catch (e) {
@@ -639,7 +638,7 @@ function App() {
       <aside className="tv-left" aria-label="Drawing tools">
         {TOOL_GROUPS.map((g, gi) => <div key={gi} className="tv-tool-group">{g.map(t => {
           const selected = t.action === 'hide' ? hideDrawings : t.action === 'magnet' ? magnetMode : t.action === 'lock' ? lockedDrawings : tool === t.name
-          const Icon = t.action === 'hide' && hideDrawings ? EyeOff : t.action === 'lock' && !lockedDrawings ? Unlock : t.Icon
+          const Icon = t.action === 'hide' && hideDrawings ? EyeOff : t.action === 'lock' && lockedDrawings ? Unlock : t.Icon
           const activeTitle = t.action === 'magnet' && magnetMode ? 'Magnet mode (on)' : t.action === 'lock' && lockedDrawings ? 'Unlock drawings' : t.name
           return <button key={t.name} title={activeTitle} aria-label={activeTitle} aria-pressed={selected} className={'tv-tool' + (selected ? ' sel' : '')} onClick={() => pickTool(t)}><Icon size={20}/></button>
         })}</div>)}
