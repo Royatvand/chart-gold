@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react'
 import { upload as uploadBlob } from '@vercel/blob/client'
+import { RSI } from 'technicalindicators'
 import {
   createChart, AreaSeries, BarSeries, CandlestickSeries, LineSeries, ColorType, CrosshairMode, LineStyle,
   type IChartApi, type IPriceLine, type ISeriesApi, type SeriesType, type UTCTimestamp,
@@ -66,8 +67,13 @@ const sgn = (n: number) => (n >= 0 ? '+' : '−')
 function App() {
   const rootRef = useRef<HTMLElement>(null)
   const host = useRef<HTMLDivElement>(null)
+  const rsiHost = useRef<HTMLDivElement>(null)
   const chartRef = useRef<IChartApi | null>(null)
   const seriesRef = useRef<ISeriesApi<SeriesType> | null>(null)
+  const rsiChartRef = useRef<IChartApi | null>(null)
+  const rsiSeriesRef = useRef<ISeriesApi<'Line'> | null>(null)
+  const rsiBoundsSeriesRef = useRef<ISeriesApi<'Line'> | null>(null)
+  const rsiSyncRef = useRef(false)
   const indicatorRefs = useRef<ISeriesApi<'Line'>[]>([])
   const fitRef = useRef<Candle[] | null>(null)
   const demos = useMemo(() => Object.fromEntries(SYMBOLS.map(s => [s.symbol, genDemo(s)])) as Record<string, Candle[]>, [])
@@ -110,7 +116,7 @@ function App() {
   const [noteDraft, setNoteDraft] = useState(() => {
     try { return window.localStorage.getItem('chartgold-notes') ?? '' } catch { return '' }
   })
-  const [indicators, setIndicators] = useState({ fast: false, slow: false })
+  const [indicators, setIndicators] = useState({ fast: false, slow: false, rsi: false })
   const [indicatorSearch, setIndicatorSearch] = useState('')
   const [seriesVersion, setSeriesVersion] = useState(0)
   const [hoverIdx, setHoverIdx] = useState<number | null>(null)
@@ -299,6 +305,96 @@ function App() {
     indicatorRefs.current = made
     return () => { if (chartRef.current === chart) made.forEach(l => { try { chart.removeSeries(l) } catch { /* disposed */ } }) }
   }, [indicators, fastPeriod, slowPeriod, shown, seriesVersion])
+
+
+  // RSI (14) lives in its own synchronized lower pane, calculated from the visible OHLC history.
+  useEffect(() => {
+    if (!indicators.rsi) return
+    const mainChart = chartRef.current
+    const container = rsiHost.current
+    if (!mainChart || !container) return
+
+    const oscillator = createChart(container, {
+      autoSize: true,
+      layout: { background: { type: ColorType.Solid, color: '#131722' }, textColor: '#9598a1', fontFamily: FONT, fontSize: 10 },
+      grid: { vertLines: { color: '#1f2330' }, horzLines: { color: '#1f2330' } },
+      rightPriceScale: { borderColor: '#2a2e39', scaleMargins: { top: .03, bottom: .03 } },
+      timeScale: { borderColor: '#2a2e39', timeVisible: false, secondsVisible: false, rightOffset: 10, barSpacing: 8, minBarSpacing: .4, visible: false },
+      crosshair: {
+        mode: CrosshairMode.Normal,
+        vertLine: { color: '#9598a1', width: 1, style: LineStyle.Dashed, labelBackgroundColor: '#363a45' },
+        horzLine: { color: '#9598a1', width: 1, style: LineStyle.Dashed, labelBackgroundColor: '#363a45' },
+      },
+    })
+    const rsiLine = oscillator.addSeries(LineSeries, {
+      color: '#a78bfa', lineWidth: 2, priceLineVisible: false, lastValueVisible: true,
+      crosshairMarkerVisible: false, priceFormat: { type: 'price', precision: 2, minMove: .01 },
+    })
+    // Transparent bounds hold the oscillator scale at 0–100 rather than autoscaling to each local swing.
+    const bounds = oscillator.addSeries(LineSeries, {
+      color: 'rgba(0,0,0,0)', lineWidth: 1, priceLineVisible: false,
+      lastValueVisible: false, crosshairMarkerVisible: false,
+    })
+    const levels: IPriceLine[] = [
+      rsiLine.createPriceLine({ price: 70, color: '#f23645', lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: '70' }),
+      rsiLine.createPriceLine({ price: 30, color: '#089981', lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: '30' }),
+    ]
+    rsiChartRef.current = oscillator
+    rsiSeriesRef.current = rsiLine
+    rsiBoundsSeriesRef.current = bounds
+
+    const syncRange = (target: IChartApi, range: { from: number; to: number } | null) => {
+      if (!range || rsiSyncRef.current) return
+      const current = target.timeScale().getVisibleLogicalRange()
+      if (current && Math.abs(current.from - range.from) < .01 && Math.abs(current.to - range.to) < .01) return
+      rsiSyncRef.current = true
+      try { target.timeScale().setVisibleLogicalRange(range) } catch { /* range can be briefly unavailable during resize */ }
+      finally { rsiSyncRef.current = false }
+    }
+    const syncMainToRsi = (range: { from: number; to: number } | null) => syncRange(oscillator, range)
+    const syncRsiToMain = (range: { from: number; to: number } | null) => syncRange(mainChart, range)
+    mainChart.timeScale().subscribeVisibleLogicalRangeChange(syncMainToRsi)
+    oscillator.timeScale().subscribeVisibleLogicalRangeChange(syncRsiToMain)
+    const initialRange = mainChart.timeScale().getVisibleLogicalRange()
+    if (initialRange) syncRange(oscillator, initialRange)
+
+    return () => {
+      mainChart.timeScale().unsubscribeVisibleLogicalRangeChange(syncMainToRsi)
+      oscillator.timeScale().unsubscribeVisibleLogicalRangeChange(syncRsiToMain)
+      levels.forEach(line => { try { rsiLine.removePriceLine(line) } catch { /* chart is being disposed */ } })
+      oscillator.remove()
+      if (rsiChartRef.current === oscillator) {
+        rsiChartRef.current = null
+        rsiSeriesRef.current = null
+        rsiBoundsSeriesRef.current = null
+      }
+    }
+  }, [indicators.rsi])
+
+  useEffect(() => {
+    if (!indicators.rsi) return
+    const chart = rsiChartRef.current
+    const line = rsiSeriesRef.current
+    const bounds = rsiBoundsSeriesRef.current
+    if (!chart || !line || !bounds || !shown.length) return
+    const period = 14
+    const values = RSI.calculate({ period, values: shown.map(candle => candle.close) })
+    // The library emits the first RSI after 14 price changes; leading whitespace keeps x-coordinates aligned.
+    const points = shown.map((candle, index) => {
+      const value = index >= period ? values[index - period] : undefined
+      return value === undefined ? { time: candle.time } : { time: candle.time, value }
+    })
+    line.setData(points)
+    bounds.setData(shown.length > 1
+      ? [{ time: shown[0].time, value: 0 }, { time: shown[shown.length - 1].time, value: 100 }]
+      : [])
+    const range = chartRef.current?.timeScale().getVisibleLogicalRange()
+    if (range) {
+      rsiSyncRef.current = true
+      try { chart.timeScale().setVisibleLogicalRange(range) } catch { /* range may be unavailable during initial render */ }
+      finally { rsiSyncRef.current = false }
+    }
+  }, [shown, indicators.rsi])
 
   // Horizontal-line drawings.
   useEffect(() => {
@@ -610,8 +706,11 @@ function App() {
             <button className={'tv-item indicator-option' + (indicators.fast ? ' sel' : '')} onClick={() => setIndicators(v => ({ ...v, fast: !v.fast }))}><i className="dot" style={{ background: '#2962ff' }}/><span><b>Simple Moving Average</b><small>SMA · دوره سریع ({fastPeriod})</small></span>{indicators.fast ? <Check size={15}/> : <Plus size={15}/>}</button>
             <button className={'tv-item indicator-option' + (indicators.slow ? ' sel' : '')} onClick={() => setIndicators(v => ({ ...v, slow: !v.slow }))}><i className="dot" style={{ background: '#ff9800' }}/><span><b>Simple Moving Average</b><small>SMA · دوره کند ({slowPeriod})</small></span>{indicators.slow ? <Check size={15}/> : <Plus size={15}/>}</button>
           </>}
-          {indicatorSearch.trim() && !'sma simple moving average میانگین متحرک'.includes(indicatorSearch.toLowerCase()) && <div className="indicator-empty">فعلاً فقط SMA پیاده‌سازی شده است.</div>}
-          <div className="tv-menu-note">دوره‌ها از تنظیمات Strategy Tester خوانده می‌شوند. برای حذف اندیکاتور، دوباره روی آن بزن.</div>
+          <div className="indicator-category">OSCILLATORS</div>
+          {(!indicatorSearch.trim() || 'rsi relative strength index شاخص قدرت نسبی oscillator'.includes(indicatorSearch.toLowerCase())) &&
+            <button className={'tv-item indicator-option' + (indicators.rsi ? ' sel' : '')} onClick={() => setIndicators(v => ({ ...v, rsi: !v.rsi }))}><i className="dot" style={{ background: '#a78bfa' }}/><span><b>Relative Strength Index</b><small>RSI · دوره 14 · پنل جداگانه</small></span>{indicators.rsi ? <Check size={15}/> : <Plus size={15}/>}</button>}
+          {indicatorSearch.trim() && !'sma simple moving average میانگین متحرک rsi relative strength index شاخص قدرت نسبی oscillator'.includes(indicatorSearch.toLowerCase()) && <div className="indicator-empty">برای این جست‌وجو اندیکاتوری پیدا نشد.</div>}
+          <div className="tv-menu-note">برای نمایش یا حذف اندیکاتور، روی نام آن بزن. SMA روی قیمت و RSI در پنل جداگانه نمایش داده می‌شود.</div>
         </div>}
       </div>
       <button className="tv-btn" title="Create Alert" onClick={() => { setPanel('alerts'); setAlertPrice(String(last?.close ?? '')); setShowAlertDialog(true); setMobilePanelOpen(false) }}><AlarmClock size={18}/><span className="tv-label">Alert</span></button>
@@ -648,8 +747,9 @@ function App() {
 
       {/* ===== CHART + BOTTOM ===== */}
       <section className="tv-center">
-        <div className="tv-chart-wrap">
+        <div className={'tv-chart-wrap' + (indicators.rsi ? ' tv-chart-wrap-rsi' : '')}>
           <div ref={host} className="tv-chart"/>
+          {indicators.rsi && <div className="tv-rsi-pane"><div className="tv-rsi-title">RSI (14)</div><div ref={rsiHost} className="tv-rsi-chart"/></div>}
           {!hideDrawings && chartRef.current && seriesRef.current && <svg
             className="drawing-overlay"
             aria-label="Chart drawings"
