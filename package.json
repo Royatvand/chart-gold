@@ -10,7 +10,7 @@
   },
   "dependencies": {
     "lightweight-charts": "^5.0.8",
-    "lucide-react": "^0.468.0",
+    "lucide-react": "^1.61.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "@vercel/blob": "^2.8.2"
