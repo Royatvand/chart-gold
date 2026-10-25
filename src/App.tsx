@@ -5,10 +5,10 @@ import {
   type IChartApi, type IPriceLine, type ISeriesApi, type SeriesType, type UTCTimestamp,
 } from 'lightweight-charts'
 import {
-  Activity, AlarmClock, AreaChart, Bell, Camera, Check, ChevronDown, ChevronUp, CircleHelp, Crosshair, Download, Ellipsis,
-  Eye, EyeOff, FileUp, FlaskConical, Info, LineChart, List, Lock, Magnet, Maximize, Minus, MousePointer2, Pause, Pencil,
-  Play, Plus, Redo2, Rewind, Ruler, Search, Settings, SkipForward, Smile, StepForward, Trash2, TrendingDown, TrendingUp,
-  Type, Undo2, Upload, X, ZoomIn, ZoomOut, Layers, type LucideIcon,
+  Activity, AlarmClock, AreaChart, Bell, Brush, Camera, Check, ChevronDown, ChevronUp, CircleHelp, Crosshair, Download, Ellipsis,
+  Eye, EyeOff, FileUp, FlaskConical, Info, LineChart, List, Lock, Magnet, Maximize, Minus, MousePointer2, NotebookPen, Pause,
+  Play, Plus, Redo2, Rewind, Ruler, Search, Settings, Shapes, SkipForward, StepForward, StickyNote, Trash2, TrendingDown, TrendingUp,
+  Type, Undo2, Unlock, Upload, X, ZoomIn, ZoomOut, Layers, type LucideIcon,
 } from 'lucide-react'
 import {
   SYMBOLS, TIMEFRAMES, aggregate, dateLabel, detectBaseSec, fmt, genDemo, indexByTime, inferDigits, parseCsvFile,
@@ -23,7 +23,17 @@ const SPEEDS = [{ label: '10x', ms: 100 }, { label: '7x', ms: 143 }, { label: '5
 const QUICK_TF = ['5m', '15m', '1h', '4h', '1D']
 type ChartType = 'candles' | 'bars' | 'line' | 'area'
 type Replay = { active: boolean; selecting: boolean; playing: boolean; speed: number }
-type SidePanel = 'watchlist' | 'alerts' | 'data' | null
+type Anchor = { time: number; price: number }
+type AnchorPair = { a: Anchor; b: Anchor }
+type ChartText = Anchor & { id: number; text: string }
+type ChartIcon = Anchor & { id: number; icon: string }
+type DrawingHistoryEntry =
+  | { kind: 'horizontal'; value: number }
+  | { kind: 'trend' | 'fib' | 'measure'; value: AnchorPair }
+  | { kind: 'brush'; value: Anchor[] }
+  | { kind: 'text'; value: ChartText }
+  | { kind: 'icon'; value: ChartIcon }
+type SidePanel = 'watchlist' | 'alerts' | 'data' | 'notes' | null
 type PriceAlert = { id: number; symbol: string; price: number; direction: 'above' | 'below'; active: boolean }
 
 const CandlesIcon = ({ size = 18 }: { size?: number }) => <svg width={size} height={size} viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.4"><path d="M5 2v3M5 12v4M13 1v4M13 11v5"/><rect x="3" y="5" width="4" height="7" rx=".5"/><rect x="11" y="5" width="4" height="6" rx=".5"/></svg>
@@ -35,13 +45,13 @@ const CHART_TYPES: { id: ChartType; label: string; Icon: (p: { size?: number }) 
   { id: 'area', label: 'Area', Icon: ({ size }) => <AreaChart size={size} /> },
 ]
 
-type ToolDef = { name: string; Icon: LucideIcon; impl?: boolean; action?: 'zoomIn' | 'zoomOut' | 'hide' }
+type ToolDef = { name: string; Icon: LucideIcon; impl?: boolean; action?: 'zoomIn' | 'zoomOut' | 'hide' | 'magnet' | 'lock' }
 const TOOL_GROUPS: ToolDef[][] = [
   [{ name: 'Crosshair', Icon: Crosshair, impl: true }, { name: 'Cursor', Icon: MousePointer2, impl: true }],
   [{ name: 'Trend line', Icon: TrendingUp, impl: true }, { name: 'Horizontal line', Icon: Minus, impl: true }, { name: 'Fib retracement', Icon: Layers, impl: true }],
-  [{ name: 'Brush', Icon: Pencil }, { name: 'Text', Icon: Type }, { name: 'Icon', Icon: Smile }],
-  [{ name: 'Measure', Icon: Ruler }, { name: 'Zoom in', Icon: ZoomIn, impl: true, action: 'zoomIn' }, { name: 'Zoom out', Icon: ZoomOut, impl: true, action: 'zoomOut' }],
-  [{ name: 'Magnet mode', Icon: Magnet }, { name: 'Lock all drawings', Icon: Lock }, { name: 'Hide all drawings', Icon: Eye, impl: true, action: 'hide' }],
+  [{ name: 'Brush', Icon: Brush, impl: true }, { name: 'Text', Icon: Type, impl: true }, { name: 'Icon', Icon: Shapes, impl: true }],
+  [{ name: 'Measure', Icon: Ruler, impl: true }, { name: 'Zoom in', Icon: ZoomIn, impl: true, action: 'zoomIn' }, { name: 'Zoom out', Icon: ZoomOut, impl: true, action: 'zoomOut' }],
+  [{ name: 'Magnet mode', Icon: Magnet, impl: true, action: 'magnet' }, { name: 'Lock all drawings', Icon: Lock, impl: true, action: 'lock' }, { name: 'Hide all drawings', Icon: Eye, impl: true, action: 'hide' }],
 ]
 
 const dayStats = (arr: Candle[], endIdx: number, n: number) => {
@@ -74,12 +84,32 @@ function App() {
   const [query, setQuery] = useState('')
   const [tool, setTool] = useState('Crosshair')
   const [drawings, setDrawings] = useState<number[]>([])
-  const [trendLines, setTrendLines] = useState<{ a: { time: number; price: number }; b: { time: number; price: number } }[]>([])
-  const [fibDrawings, setFibDrawings] = useState<{ a: { time: number; price: number }; b: { time: number; price: number } }[]>([])
-  const [pendingAnchor, setPendingAnchor] = useState<{ time: number; price: number } | null>(null)
+  const [trendLines, setTrendLines] = useState<AnchorPair[]>([])
+  const [fibDrawings, setFibDrawings] = useState<AnchorPair[]>([])
+  const [brushPaths, setBrushPaths] = useState<Anchor[][]>([])
+  const [activeBrushPath, setActiveBrushPath] = useState<Anchor[]>([])
+  const brushPathRef = useRef<Anchor[]>([])
+  const [chartTexts, setChartTexts] = useState<ChartText[]>([])
+  const [chartIcons, setChartIcons] = useState<ChartIcon[]>([])
+  const [measurements, setMeasurements] = useState<AnchorPair[]>([])
+  const [measureAnchor, setMeasureAnchor] = useState<Anchor | null>(null)
+  const measureAnchorRef = useRef<Anchor | null>(null)
+  measureAnchorRef.current = measureAnchor
+  const [lockedDrawings, setLockedDrawings] = useState(false)
+  const [magnetMode, setMagnetMode] = useState(false)
+  const [pendingAnchor, setPendingAnchor] = useState<Anchor | null>(null)
   const [, setDrawingRenderVersion] = useState(0)
-  const [redo, setRedo] = useState<number[]>([])
+  const [undoHistory, setUndoHistory] = useState<DrawingHistoryEntry[]>([])
+  const [redo, setRedo] = useState<DrawingHistoryEntry[]>([])
   const [hideDrawings, setHideDrawings] = useState(false)
+  const [textAnchor, setTextAnchor] = useState<Anchor | null>(null)
+  const [textValue, setTextValue] = useState('')
+  const [showTextDialog, setShowTextDialog] = useState(false)
+  const [iconAnchor, setIconAnchor] = useState<Anchor | null>(null)
+  const [showIconDialog, setShowIconDialog] = useState(false)
+  const [noteDraft, setNoteDraft] = useState(() => {
+    try { return window.localStorage.getItem('chartgold-notes') ?? '' } catch { return '' }
+  })
   const [indicators, setIndicators] = useState({ fast: false, slow: false })
   const [indicatorSearch, setIndicatorSearch] = useState('')
   const [seriesVersion, setSeriesVersion] = useState(0)
@@ -141,11 +171,13 @@ function App() {
 
   // Refs mirror state for chart event handlers that are subscribed once.
   const toolRef = useRef(tool); toolRef.current = tool
-  const pendingAnchorRef = useRef<{ time: number; price: number } | null>(null)
+  const pendingAnchorRef = useRef<Anchor | null>(null)
   pendingAnchorRef.current = pendingAnchor
   const selectingRef = useRef(replay.selecting); selectingRef.current = replay.selecting
   const dataRef = useRef(data); dataRef.current = data
   const shownRef = useRef(shown); shownRef.current = shown
+  const magnetRef = useRef(magnetMode); magnetRef.current = magnetMode
+  const lockedRef = useRef(lockedDrawings); lockedRef.current = lockedDrawings
 
   /* ---------- chart lifecycle ---------- */
   useEffect(() => {
@@ -179,15 +211,47 @@ function App() {
         return
       }
       const activeTool = toolRef.current
+      if (lockedRef.current) return
       const price = seriesRef.current?.coordinateToPrice(param.point.y)
       if (price === null || price === undefined) return
-      const anchor = { time: Number(param.time), price: Number(price) }
-      if (activeTool === 'Horizontal line') { setDrawings(d => [...d, anchor.price]); setRedo([]); return }
+      let anchor: Anchor = { time: Number(param.time), price: Number(price) }
+      if (magnetRef.current) {
+        const idx = indexByTime(shownRef.current, anchor.time)
+        const candle = shownRef.current[idx]
+        if (candle) {
+          const levels = [candle.open, candle.high, candle.low, candle.close]
+          anchor = { time: Number(candle.time), price: levels.reduce((best, value) => Math.abs(value - anchor.price) < Math.abs(best - anchor.price) ? value : best, levels[0]) }
+        }
+      }
+      if (activeTool === 'Horizontal line') {
+        setDrawings(items => [...items, anchor.price])
+        setUndoHistory(history => [...history, { kind: 'horizontal', value: anchor.price }]); setRedo([])
+        return
+      }
+      if (activeTool === 'Text') { setTextAnchor(anchor); setTextValue(''); setShowTextDialog(true); return }
+      if (activeTool === 'Icon') { setIconAnchor(anchor); setShowIconDialog(true); return }
+      if (activeTool === 'Measure') {
+        if (!measureAnchorRef.current) {
+          measureAnchorRef.current = anchor; setMeasureAnchor(anchor)
+          setNotice('نقطه اول اندازه‌گیری ثبت شد؛ برای تکمیل روی نقطه دوم کلیک کن.')
+        } else {
+          const shape = { a: measureAnchorRef.current, b: anchor }
+          setMeasurements(items => [...items, shape])
+          setUndoHistory(history => [...history, { kind: 'measure', value: shape }]); setRedo([])
+          measureAnchorRef.current = null; setMeasureAnchor(null); setNotice('اندازه‌گیری به چارت اضافه شد.')
+        }
+        return
+      }
       if (activeTool === 'Trend line' || activeTool === 'Fib retracement') {
         if (!pendingAnchorRef.current) { pendingAnchorRef.current = anchor; setPendingAnchor(anchor); setNotice(`نقطه اول ${activeTool === 'Trend line' ? 'خط روند' : 'فیبوناچی'} ثبت شد؛ روی نقطه دوم چارت کلیک کن.`); return }
         const shape = { a: pendingAnchorRef.current, b: anchor }
-        if (activeTool === 'Trend line') setTrendLines(lines => [...lines, shape])
-        else setFibDrawings(lines => [...lines, shape])
+        if (activeTool === 'Trend line') {
+          setTrendLines(lines => [...lines, shape])
+          setUndoHistory(history => [...history, { kind: 'trend', value: shape }])
+        } else {
+          setFibDrawings(lines => [...lines, shape])
+          setUndoHistory(history => [...history, { kind: 'fib', value: shape }])
+        }
         pendingAnchorRef.current = null; setPendingAnchor(null); setRedo([]); setNotice('ابزار رسم اضافه شد.')
       }
     })
@@ -274,12 +338,15 @@ function App() {
     document.addEventListener('mousedown', close)
     return () => document.removeEventListener('mousedown', close)
   }, [menu])
+  useEffect(() => {
+    try { window.localStorage.setItem('chartgold-notes', noteDraft) } catch { /* storage may be disabled */ }
+  }, [noteDraft])
 
   /* ---------- actions ---------- */
   const toggleMenu = (id: string) => setMenu(m => (m === id ? null : id))
   const selectSymbol = (sym: string) => {
     setSymbol(sym); setSymbolDialog(false); setQuery(''); setMenu(null); setMobilePanelOpen(false)
-    if (isDemo && demos[sym]) { setCandles(demos[sym]); setDrawings([]); setRedo([]) }
+    if (isDemo && demos[sym]) { setCandles(demos[sym]); setDrawings([]); setTrendLines([]); setFibDrawings([]); setBrushPaths([]); setChartTexts([]); setChartIcons([]); setMeasurements([]); setUndoHistory([]); setRedo([]) }
   }
   const submitSymbolQuery = () => {
     const q = query.trim().toUpperCase()
@@ -315,12 +382,65 @@ function App() {
     if (t.action === 'zoomIn') return zoom(.7)
     if (t.action === 'zoomOut') return zoom(1.4)
     if (t.action === 'hide') { setHideDrawings(v => !v); return }
+    if (t.action === 'magnet') { const enabled = !magnetMode; setMagnetMode(enabled); setNotice(enabled ? 'Magnet mode روشن شد؛ نقاط رسم به قیمت‌های کندل می‌چسبند.' : 'Magnet mode خاموش شد.'); return }
+    if (t.action === 'lock') { const locked = !lockedDrawings; setLockedDrawings(locked); setNotice(locked ? 'ترسیم‌ها قفل شدند؛ رسم جدید موقتاً غیرفعال است.' : 'ترسیم‌ها آزاد شدند.'); return }
     if (!t.impl) { setNotice(`ابزار «${t.name}» هنوز پیاده‌سازی نشده است.`); return }
-    pendingAnchorRef.current = null; setPendingAnchor(null); setTool(t.name)
-    if (t.name === 'Trend line' || t.name === 'Fib retracement') setNotice(`ابزار ${t.name} فعال شد؛ برای رسم، دو نقطه روی چارت انتخاب کن.`)
+    if (lockedDrawings) { setNotice('برای رسم جدید ابتدا قفل ترسیم‌ها را باز کن.'); return }
+    pendingAnchorRef.current = null; setPendingAnchor(null)
+    measureAnchorRef.current = null; setMeasureAnchor(null)
+    setTool(t.name)
+    if (t.name === 'Trend line' || t.name === 'Fib retracement' || t.name === 'Measure') setNotice(`ابزار ${t.name} فعال شد؛ برای رسم، دو نقطه روی چارت انتخاب کن.`)
+    else if (t.name === 'Brush') setNotice('قلم آزاد فعال شد؛ روی چارت بکش.')
+    else if (t.name === 'Text' || t.name === 'Icon') setNotice(`ابزار ${t.name} فعال شد؛ روی چارت کلیک کن.`)
   }
-  const undo = () => setDrawings(d => { if (!d.length) return d; setRedo(r => [...r, d[d.length - 1]]); return d.slice(0, -1) })
-  const redoDraw = () => setRedo(r => { if (!r.length) return r; setDrawings(d => [...d, r[r.length - 1]]); return r.slice(0, -1) })
+  const undo = () => {
+    const entry = undoHistory[undoHistory.length - 1]
+    if (!entry) return
+    switch (entry.kind) {
+      case 'horizontal': setDrawings(items => items.slice(0, -1)); break
+      case 'trend': setTrendLines(items => items.slice(0, -1)); break
+      case 'fib': setFibDrawings(items => items.slice(0, -1)); break
+      case 'brush': setBrushPaths(items => items.slice(0, -1)); break
+      case 'text': setChartTexts(items => items.slice(0, -1)); break
+      case 'icon': setChartIcons(items => items.slice(0, -1)); break
+      case 'measure': setMeasurements(items => items.slice(0, -1)); break
+    }
+    setUndoHistory(items => items.slice(0, -1))
+    setRedo(items => [...items, entry])
+  }
+  const redoDraw = () => {
+    const entry = redo[redo.length - 1]
+    if (!entry) return
+    switch (entry.kind) {
+      case 'horizontal': setDrawings(items => [...items, entry.value]); break
+      case 'trend': setTrendLines(items => [...items, entry.value]); break
+      case 'fib': setFibDrawings(items => [...items, entry.value]); break
+      case 'brush': setBrushPaths(items => [...items, entry.value]); break
+      case 'text': setChartTexts(items => [...items, entry.value]); break
+      case 'icon': setChartIcons(items => [...items, entry.value]); break
+      case 'measure': setMeasurements(items => [...items, entry.value]); break
+    }
+    setUndoHistory(items => [...items, entry])
+    setRedo(items => items.slice(0, -1))
+  }
+  const drawingPointFromPointer = (clientX: number, clientY: number): Anchor | null => {
+    const bounds = host.current?.getBoundingClientRect()
+    const chart = chartRef.current
+    const series = seriesRef.current
+    if (!bounds || !chart || !series) return null
+    const time = chart.timeScale().coordinateToTime(clientX - bounds.left)
+    const price = series.coordinateToPrice(clientY - bounds.top)
+    if (time === null || time === undefined || price === null) return null
+    let point: Anchor = { time: Number(time), price: Number(price) }
+    if (magnetMode && shown.length) {
+      const candle = shown[indexByTime(shown, point.time)]
+      if (candle) {
+        const levels = [candle.open, candle.high, candle.low, candle.close]
+        point = { time: Number(candle.time), price: levels.reduce((best, value) => Math.abs(value - point.price) < Math.abs(best - point.price) ? value : best, levels[0]) }
+      }
+    }
+    return point
+  }
   const screenshot = () => {
     const canvas = chartRef.current?.takeScreenshot()
     canvas?.toBlob(b => { if (!b) return; const url = URL.createObjectURL(b); const a = document.createElement('a'); a.href = url; a.download = `${symbol}-${timeframe}.png`; a.click(); URL.revokeObjectURL(url) })
@@ -377,7 +497,7 @@ function App() {
     try {
       const parsed = await parseCsvFile(file, setImportProgress)
       setTimeframe(tfForBase(detectBaseSec(parsed)))
-      setCandles(parsed); setFileName(file.name); setStoredBlob(null); setCloudSummary(null); setTestResults(null); setTrades([]); setDrawings([]); setRedo([])
+      setCandles(parsed); setFileName(file.name); setStoredBlob(null); setCloudSummary(null); setTestResults(null); setTrades([]); setDrawings([]); setTrendLines([]); setFibDrawings([]); setBrushPaths([]); setChartTexts([]); setChartIcons([]); setMeasurements([]); setUndoHistory([]); setRedo([])
       setShowImport(false); setNotice(`${parsed.length.toLocaleString()} کندل وارد شد.`)
     } catch (e) {
       setNotice(e instanceof Error ? e.message : 'خطا در خواندن CSV')
@@ -385,7 +505,7 @@ function App() {
   }, [])
   const resetSample = () => {
     setCandles(demos['XAUUSD']); setFileName(''); setStoredBlob(null); setCloudSummary(null); setSymbol('XAUUSD'); setTimeframe('15m'); setTrades([]); setTestResults(null)
-    setDrawings([]); setRedo([]); setMenu(null); setNotice('دیتای نمونه بازنشانی شد.')
+    setDrawings([]); setTrendLines([]); setFibDrawings([]); setBrushPaths([]); setChartTexts([]); setChartIcons([]); setMeasurements([]); setUndoHistory([]); setRedo([]); setMenu(null); setNotice('دیتای نمونه بازنشانی شد.')
   }
   const recordTrade = (side: Side) => {
     if (!last) return
@@ -498,8 +618,8 @@ function App() {
       <button className="tv-btn" title="Create Alert" onClick={() => { setPanel('alerts'); setAlertPrice(String(last?.close ?? '')); setShowAlertDialog(true); setMobilePanelOpen(false) }}><AlarmClock size={18}/><span className="tv-label">Alert</span></button>
       <button className={'tv-btn tv-replay' + (replay.active ? ' on' : '')} title="Bar Replay" onClick={toggleReplay}><Rewind size={18} fill="currentColor"/><span>Replay</span></button>
       <i className="tv-sep"/>
-      <button className="tv-btn" title="Undo" disabled={!drawings.length} onClick={undo}><Undo2 size={18}/></button>
-      <button className="tv-btn" title="Redo" disabled={!redo.length} onClick={redoDraw}><Redo2 size={18}/></button>
+      <button className="tv-btn" title="Undo drawing" aria-label="Undo drawing" disabled={!undoHistory.length} onClick={undo}><Undo2 size={18}/></button>
+      <button className="tv-btn" title="Redo drawing" aria-label="Redo drawing" disabled={!redo.length} onClick={redoDraw}><Redo2 size={18}/></button>
       <div className="tv-spacer"/>
       <div className="tv-menu-wrap" data-menu>
         <button className="tv-btn" title="Settings" onClick={() => toggleMenu('settings')}><Settings size={18}/></button>
@@ -518,19 +638,57 @@ function App() {
       {/* ===== LEFT DRAWING TOOLBAR ===== */}
       <aside className="tv-left" aria-label="Drawing tools">
         {TOOL_GROUPS.map((g, gi) => <div key={gi} className="tv-tool-group">{g.map(t => {
-          const selected = t.action === 'hide' ? hideDrawings : tool === t.name
-          const Icon = t.action === 'hide' && hideDrawings ? EyeOff : t.Icon
-          return <button key={t.name} title={t.name} aria-label={t.name} className={'tv-tool' + (selected ? ' sel' : '') + (t.impl ? '' : ' soft')} onClick={() => pickTool(t)}><Icon size={20} strokeWidth={1.6}/></button>
+          const selected = t.action === 'hide' ? hideDrawings : t.action === 'magnet' ? magnetMode : t.action === 'lock' ? lockedDrawings : tool === t.name
+          const Icon = t.action === 'hide' && hideDrawings ? EyeOff : t.action === 'lock' && !lockedDrawings ? Unlock : t.Icon
+          const activeTitle = t.action === 'magnet' && magnetMode ? 'Magnet mode (on)' : t.action === 'lock' && lockedDrawings ? 'Unlock drawings' : t.name
+          return <button key={t.name} title={activeTitle} aria-label={activeTitle} aria-pressed={selected} className={'tv-tool' + (selected ? ' sel' : '')} onClick={() => pickTool(t)}><Icon size={20}/></button>
         })}</div>)}
         <div className="tv-spacer"/>
-        <div className="tv-tool-group"><button className="tv-tool" title="Remove drawings" aria-label="Remove drawings" onClick={() => { setDrawings([]); setTrendLines([]); setFibDrawings([]); setPendingAnchor(null); pendingAnchorRef.current = null; setRedo([]) }}><Trash2 size={20} strokeWidth={1.6}/></button></div>
+        <div className="tv-tool-group"><button className="tv-tool" title="Remove all drawings" aria-label="Remove all drawings" onClick={() => { setDrawings([]); setTrendLines([]); setFibDrawings([]); setBrushPaths([]); setActiveBrushPath([]); brushPathRef.current = []; setChartTexts([]); setChartIcons([]); setMeasurements([]); setPendingAnchor(null); pendingAnchorRef.current = null; setMeasureAnchor(null); measureAnchorRef.current = null; setUndoHistory([]); setRedo([]); setNotice('همه‌ی ترسیم‌های چارت پاک شدند.') }}><Trash2 size={20}/></button></div>
       </aside>
 
       {/* ===== CHART + BOTTOM ===== */}
       <section className="tv-center">
         <div className="tv-chart-wrap">
           <div ref={host} className="tv-chart"/>
-          {!hideDrawings && chartRef.current && seriesRef.current && <svg className="drawing-overlay" aria-label="Chart drawings">
+          {!hideDrawings && chartRef.current && seriesRef.current && <svg
+            className="drawing-overlay"
+            aria-label="Chart drawings"
+            style={{ pointerEvents: tool === 'Brush' && !lockedDrawings ? 'auto' : 'none', cursor: tool === 'Brush' && !lockedDrawings ? 'crosshair' : 'default', touchAction: 'none' }}
+            onPointerDown={e => {
+              if (tool !== 'Brush' || lockedDrawings) return
+              e.preventDefault(); e.stopPropagation()
+              const point = drawingPointFromPointer(e.clientX, e.clientY)
+              if (!point) return
+              e.currentTarget.setPointerCapture(e.pointerId)
+              brushPathRef.current = [point]
+              setActiveBrushPath([point])
+            }}
+            onPointerMove={e => {
+              if (tool !== 'Brush' || lockedDrawings || !brushPathRef.current.length) return
+              const point = drawingPointFromPointer(e.clientX, e.clientY)
+              if (!point) return
+              const current = brushPathRef.current
+              const previous = current[current.length - 1]
+              if (Math.abs(point.time - previous.time) < 1 && Math.abs(point.price - previous.price) < 0.0000001) return
+              const next = [...current, point]
+              brushPathRef.current = next
+              setActiveBrushPath(next)
+            }}
+            onPointerUp={e => {
+              if (tool !== 'Brush' || !brushPathRef.current.length) return
+              const point = drawingPointFromPointer(e.clientX, e.clientY)
+              const path = point ? [...brushPathRef.current, point] : brushPathRef.current
+              if (path.length > 1) {
+                setBrushPaths(items => [...items, path])
+                setUndoHistory(history => [...history, { kind: 'brush', value: path }]); setRedo([])
+              }
+              brushPathRef.current = []
+              setActiveBrushPath([])
+              e.preventDefault(); e.stopPropagation()
+            }}
+            onPointerCancel={() => { brushPathRef.current = []; setActiveBrushPath([]) }}
+          >
             {trendLines.map((line, i) => {
               const x1 = chartRef.current!.timeScale().timeToCoordinate(line.a.time as UTCTimestamp)
               const x2 = chartRef.current!.timeScale().timeToCoordinate(line.b.time as UTCTimestamp)
@@ -551,6 +709,40 @@ function App() {
               })}</g>
             })}
             {pendingAnchor && (() => { const x = chartRef.current!.timeScale().timeToCoordinate(pendingAnchor.time as UTCTimestamp); const y = seriesRef.current!.priceToCoordinate(pendingAnchor.price); return x === null || y === null ? null : <circle cx={x} cy={y} r="4" fill="#82b1ff"/> })()}
+            {measureAnchor && (() => { const x = chartRef.current!.timeScale().timeToCoordinate(measureAnchor.time as UTCTimestamp); const y = seriesRef.current!.priceToCoordinate(measureAnchor.price); return x === null || y === null ? null : <circle cx={x} cy={y} r="4" fill="#ffb74d"/> })()}
+            {[...brushPaths, ...(activeBrushPath.length ? [activeBrushPath] : [])].map((path, i) => {
+              const pts = path.map(point => {
+                const x = chartRef.current!.timeScale().timeToCoordinate(point.time as UTCTimestamp)
+                const y = seriesRef.current!.priceToCoordinate(point.price)
+                return x === null || y === null ? null : `${x},${y}`
+              }).filter((value): value is string => value !== null)
+              return pts.length > 1 ? <polyline key={`brush-${i}`} points={pts.join(' ')} fill="none" stroke="#82b1ff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke"/> : null
+            })}
+            {chartTexts.map(item => {
+              const x = chartRef.current!.timeScale().timeToCoordinate(item.time as UTCTimestamp)
+              const y = seriesRef.current!.priceToCoordinate(item.price)
+              if (x === null || y === null) return null
+              const width = Math.max(54, item.text.length * 7.1 + 16)
+              return <g key={item.id}><rect x={x + 7} y={y - 28} width={width} height="24" rx="4" fill="#1e222d" stroke="#82b1ff" strokeWidth="1"/><text x={x + 15} y={y - 12} fontSize="11" fill="#e0e3eb">{item.text}</text></g>
+            })}
+            {chartIcons.map(item => {
+              const x = chartRef.current!.timeScale().timeToCoordinate(item.time as UTCTimestamp)
+              const y = seriesRef.current!.priceToCoordinate(item.price)
+              return x === null || y === null ? null : <text key={item.id} className="annotation-icon" x={x} y={y} textAnchor="middle" dominantBaseline="central" fontSize="21">{item.icon}</text>
+            })}
+            {measurements.map((measure, i) => {
+              const x1 = chartRef.current!.timeScale().timeToCoordinate(measure.a.time as UTCTimestamp)
+              const x2 = chartRef.current!.timeScale().timeToCoordinate(measure.b.time as UTCTimestamp)
+              const y1 = seriesRef.current!.priceToCoordinate(measure.a.price)
+              const y2 = seriesRef.current!.priceToCoordinate(measure.b.price)
+              if (x1 === null || x2 === null || y1 === null || y2 === null) return null
+              const delta = measure.b.price - measure.a.price
+              const pct = measure.a.price ? delta / measure.a.price * 100 : 0
+              const label = `${delta >= 0 ? '+' : ''}${fmt(delta, digits)} (${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%)`
+              const cx = (x1 + x2) / 2, cy = (y1 + y2) / 2
+              const width = Math.max(94, label.length * 6.6 + 16)
+              return <g key={`measure-${i}`}><line x1={x1} y1={y1} x2={x2} y2={y2} stroke="#ffb74d" strokeWidth="1.5" strokeDasharray="4 3"/><circle cx={x1} cy={y1} r="3" fill="#ffb74d"/><circle cx={x2} cy={y2} r="3" fill="#ffb74d"/><rect x={cx - width / 2} y={cy - 22} width={width} height="20" rx="4" fill="#1e222d" stroke="#ffb74d" strokeWidth="1"/><text x={cx} y={cy - 9} fontSize="10" fill="#ffcc80" textAnchor="middle">{label}</text></g>
+            })}
           </svg>}
           <div className="tv-legend">
             <div className="tv-legend-title"><b>{info.name}</b><span>·</span><span>{timeframe}</span><span>·</span><span>{isDemo ? 'SAMPLE' : fileName}</span></div>
@@ -659,11 +851,14 @@ function App() {
               {bar && [['Open', bar.open], ['High', bar.high], ['Low', bar.low], ['Close', bar.close]].map(([k, v]) => <div key={k as string}><span>{k as string}</span><b className={barUp ? 'up' : 'down'}>{fmt(v as number, digits)}</b></div>)}
               <div><span>Change</span><b className={barChg >= 0 ? 'up' : 'down'}>{sgn(barChg)}{fmt(Math.abs(barChg), digits)} ({sgn(barPct)}{Math.abs(barPct).toFixed(2)}%)</b></div>
               {bar?.volume ? <div><span>Volume</span><b>{bar.volume.toLocaleString()}</b></div> : null}</div></>}
+          {panel === 'notes' && <><div className="tv-panel-head"><div className="tv-panel-title"><NotebookPen size={15}/> Notes</div><div className="tv-spacer"/><button className="tv-btn tv-narrow" title="Clear notes" aria-label="Clear notes" onClick={() => setNoteDraft('')}><Trash2 size={15}/></button></div>
+            <div className="tv-notes-wrap"><p className="tv-wl-note">Your trading plan, observations and ideas. Notes are saved automatically on this device.</p><textarea className="tv-notes-editor" aria-label="Trading notes" value={noteDraft} maxLength={20000} onChange={e => setNoteDraft(e.target.value)} placeholder="Write notes for this chart…&#10;&#10;• Setup:&#10;• Entry reason:&#10;• Risk:&#10;• What to improve:"/><div className="tv-notes-footer"><span>{noteDraft.length.toLocaleString()} / 20,000</span><span><Check size={13}/> Auto-saved</span></div></div></>}
         </section>}
         <nav className="tv-rail" aria-label="Right sidebar">
           <button className={'tv-rail-btn' + (panel === 'watchlist' ? ' sel' : '')} title="Watchlist" onClick={() => setPanel(p => (p === 'watchlist' ? null : 'watchlist'))}><List size={20}/></button>
           <button className={'tv-rail-btn' + (panel === 'alerts' ? ' sel' : '')} title="Alerts" onClick={() => setPanel(p => (p === 'alerts' ? null : 'alerts'))}><AlarmClock size={20}/></button>
-          <button className={'tv-rail-btn' + (panel === 'data' ? ' sel' : '')} title="Data Window" onClick={() => setPanel(p => (p === 'data' ? null : 'data'))}><Info size={20}/></button>
+          <button className={'tv-rail-btn' + (panel === 'data' ? ' sel' : '')} title="Data Window" aria-label="Data Window" onClick={() => setPanel(p => (p === 'data' ? null : 'data'))}><Info size={20}/></button>
+          <button className={'tv-rail-btn' + (panel === 'notes' ? ' sel' : '')} title="Notes" aria-label="Notes" aria-pressed={panel === 'notes'} onClick={() => setPanel(p => (p === 'notes' ? null : 'notes'))}><StickyNote size={20}/></button>
           <div className="tv-spacer"/>
           <button className="tv-rail-btn" title="Help" onClick={() => setNotice('ChartGold Backtest Lab — فقط داده‌ی تاریخی؛ این یک نمونه‌ی اولیه است.')}><CircleHelp size={20}/></button>
         </nav>
@@ -678,6 +873,8 @@ function App() {
         {!filtered.length && <div className="tv-empty"><strong>No symbols match</strong><span>{isDemo ? 'Only sample symbols are available until you import a CSV.' : 'Press Enter to use this as a custom label.'}</span></div>}</div>
     </section></div>}
 
+    {showTextDialog && textAnchor && <div className="modal-backdrop" onClick={() => setShowTextDialog(false)}><section className="tv-dialog annotation-dialog" role="dialog" aria-modal="true" aria-label="Add chart text" onClick={e => e.stopPropagation()}><div className="tv-dialog-head"><strong>Add chart note</strong><button className="tv-btn tv-narrow" onClick={() => setShowTextDialog(false)} aria-label="Close"><X size={18}/></button></div><form className="alert-form" onSubmit={e => { e.preventDefault(); const value = textValue.trim(); if (!value) { setNotice('متن یادداشت نمی‌تواند خالی باشد.'); return } const item: ChartText = { ...textAnchor, id: Date.now(), text: value.slice(0, 160) }; setChartTexts(items => [...items, item]); setUndoHistory(history => [...history, { kind: 'text', value: item }]); setRedo([]); setShowTextDialog(false); setTextAnchor(null); setTextValue(''); setNotice('یادداشت روی چارت اضافه شد.') }}><label>Text on chart</label><input autoFocus maxLength={160} value={textValue} onChange={e => setTextValue(e.target.value)} placeholder="e.g. Liquidity sweep" /><p className="tv-wl-note">متن روی نقطه‌ای که انتخاب کردی قرار می‌گیرد.</p><button className="tv-primary" type="submit">Add text</button></form></section></div>}
+    {showIconDialog && iconAnchor && <div className="modal-backdrop" onClick={() => setShowIconDialog(false)}><section className="tv-dialog annotation-dialog" role="dialog" aria-modal="true" aria-label="Add chart marker" onClick={e => e.stopPropagation()}><div className="tv-dialog-head"><strong>Add chart marker</strong><button className="tv-btn tv-narrow" onClick={() => setShowIconDialog(false)} aria-label="Close"><X size={18}/></button></div><div className="annotation-icon-grid">{['📌','⭐','✅','⚠️','🔥','🚀','💡','❌','🎯','👀','💎','🧠'].map(icon => <button key={icon} className="annotation-icon-choice" title={icon} onClick={() => { const item: ChartIcon = { ...iconAnchor, id: Date.now(), icon }; setChartIcons(items => [...items, item]); setUndoHistory(history => [...history, { kind: 'icon', value: item }]); setRedo([]); setShowIconDialog(false); setIconAnchor(null); setNotice('آیکون روی چارت اضافه شد.') }}>{icon}</button>)}</div><p className="tv-wl-note" style={{ padding: '0 14px 14px' }}>یک نشانگر برای نقطه‌ی انتخاب‌شده روی چارت انتخاب کن.</p></section></div>}
     {showAlertDialog && <div className="modal-backdrop" onClick={() => setShowAlertDialog(false)}><section className="tv-dialog alert-dialog" role="dialog" aria-modal="true" aria-label="Create price alert" onClick={e => e.stopPropagation()}><div className="tv-dialog-head"><strong>Create price alert · {symbol}</strong><button className="tv-btn tv-narrow" onClick={() => setShowAlertDialog(false)} aria-label="Close"><X size={18}/></button></div><form className="alert-form" onSubmit={e => { e.preventDefault(); const price = Number(alertPrice); if (!Number.isFinite(price) || price <= 0) { setNotice('قیمت هشدار باید عددی بزرگ‌تر از صفر باشد.'); return } setPriceAlerts(items => [...items, { id: Date.now(), symbol, price, direction: alertDirection, active: true }]); setPanel('alerts'); setShowAlertDialog(false); setNotice(`هشدار ${alertDirection === 'above' ? 'بالای' : 'پایین'} ${fmt(price, digits)} برای ${symbol} ساخته شد.`) }}><label>Trigger when price is</label><select value={alertDirection} onChange={e => setAlertDirection(e.target.value as 'above' | 'below')}><option value="above">At or above</option><option value="below">At or below</option></select><label>Target price</label><input type="number" min="0.00000001" step="any" required value={alertPrice} onChange={e => setAlertPrice(e.target.value)} /><p className="tv-wl-note">این هشدار روی داده‌های چارت و Bar Replay اجرا می‌شود و اعلان قیمت زنده نیست.</p><button className="tv-primary" type="submit">Save alert</button></form></section></div>}
 
     {notice && <div className="toast" role="status"><Bell size={16}/><span>{notice}</span><button onClick={() => setNotice('')} aria-label="Dismiss"><X size={15}/></button></div>}
