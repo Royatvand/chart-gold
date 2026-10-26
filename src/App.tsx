@@ -560,7 +560,9 @@ function App() {
     let requestInFlight = false
 
     const intervalFor = (label: string) => {
-      const supported = new Set(['1m', '3m', '5m', '15m', '30m', '1h', '2h', '4h', '1d', '1w'])
+      if (label === '1D') return '1d'
+      if (label === '1W') return '1w'
+      const supported = new Set(['1m', '3m', '5m', '15m', '30m', '1h', '2h', '4h'])
       return supported.has(label) ? label : '15m'
     }
 
