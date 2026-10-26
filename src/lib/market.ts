@@ -2,7 +2,7 @@ import type { UTCTimestamp } from 'lightweight-charts'
 
 export type Candle = { time: UTCTimestamp; open: number; high: number; low: number; close: number; volume?: number }
 export type Side = 'LONG' | 'SHORT'
-export type Trade = { id: number; side: Side; entry: number; stop: number; target: number; exit: number; result: 'WIN' | 'LOSS' | 'OPEN'; r: number; entryIndex: number; exitIndex?: number; date: string }
+export type Trade = { id: number; side: Side; entry: number; stop: number; target: number; exit: number; result: 'WIN' | 'LOSS' | 'OPEN'; r: number; entryIndex: number; entryTime?: number; exitIndex?: number; date: string }
 export type ClosedTrade = Trade & { result: 'WIN' | 'LOSS' }
 export type SymbolInfo = { symbol: string; name: string; group: string; base: number; digits: number; seed: number; color: string }
 export type Timeframe = { label: string; sec: number }
@@ -35,25 +35,28 @@ export const dateLabel = (t?: number) => t !== undefined && Number.isFinite(Numb
   ? new Date(Number(t) * 1000).toISOString().replace('T', ' ').slice(0, 16)
   : '—'
 
-export function genDemo(info: SymbolInfo): Candle[] {
-  const length = 700
-  const now = Math.floor(Date.now() / 1000 / 900) * 900
-  const start = now - (length - 1) * 900
+export function genDemo(info: SymbolInfo, baseSec = 900, length = 700): Candle[] {
+  const now = Math.floor(Date.now() / 1000 / baseSec) * baseSec
+  const start = now - (length - 1) * baseSec
+  const phaseStep = baseSec / 900 // keep the waves identical in real time whatever the base timeframe is
   const result: Candle[] = []
   let previous = info.base
   for (let i = 0; i < length; i++) {
-    const wave = Math.sin((i + info.seed) * 0.13) * info.base * 0.0018
-      + Math.sin((i + info.seed) * 0.037) * info.base * 0.0032
-      + Math.sin((i + info.seed) * 0.41) * info.base * 0.00045
-    const drift = Math.sin((i + info.seed) * 0.009) * info.base * 0.0015
-    const close = Math.max(info.base * 0.0001, info.base + wave + drift)
+    const ph = i * phaseStep
+    const wave = Math.sin((ph + info.seed) * 0.13) * info.base * 0.0018
+      + Math.sin((ph + info.seed) * 0.037) * info.base * 0.0032
+      + Math.sin((ph + info.seed) * 0.41) * info.base * 0.00045
+    const drift = Math.sin((ph + info.seed) * 0.009) * info.base * 0.0015
+    const hash = Math.sin(i * 12.9898 + info.seed) * 43758.5453
+    const noise = baseSec < 900 ? (hash - Math.floor(hash) - 0.5) * info.base * 0.0005 * Math.sqrt(phaseStep) : 0
+    const close = Math.max(info.base * 0.0001, info.base + wave + drift + noise)
     const open = previous
-    const spread = Math.max(info.base * (info.digits >= 4 ? 0.00006 : 0.00045), Math.abs(close - open) * 0.65)
+    const spread = Math.max(info.base * (info.digits >= 4 ? 0.00006 : 0.00045) * Math.sqrt(Math.min(1, phaseStep * 4)), Math.abs(close - open) * 0.65)
     const high = Math.max(open, close) + spread * (0.6 + Math.abs(Math.sin(i * 1.7)) * 0.8)
     const low = Math.min(open, close) - spread * (0.6 + Math.abs(Math.cos(i * 1.3)) * 0.8)
     const scale = 10 ** info.digits
     result.push({
-      time: (start + i * 900) as UTCTimestamp,
+      time: (start + i * baseSec) as UTCTimestamp,
       open: Math.round(open * scale) / scale,
       high: Math.round(high * scale) / scale,
       low: Math.round(low * scale) / scale,

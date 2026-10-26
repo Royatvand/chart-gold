@@ -55,6 +55,10 @@ const TOOL_GROUPS: ToolDef[][] = [
   [{ name: 'Magnet mode', Icon: Magnet, impl: true, action: 'magnet' }, { name: 'Lock all drawings', Icon: Lock, impl: true, action: 'lock' }, { name: 'Hide all drawings', Icon: Eye, impl: true, action: 'hide' }],
 ]
 
+// Sample data is built at 1-minute resolution (30k bars ≈ 3 weeks) so every timeframe from 1m to 1W is usable.
+const sampleCache: Record<string, Candle[]> = {}
+const sampleFor = (sym: string): Candle[] => (sampleCache[sym] ??= genDemo(SYMBOLS.find(s => s.symbol === sym) ?? SYMBOLS[0], 60, 30000))
+
 const dayStats = (arr: Candle[], endIdx: number, n: number) => {
   const lastC = arr[Math.max(0, endIdx)]
   const ref = arr[Math.max(0, endIdx - n)]
@@ -78,8 +82,10 @@ function App() {
   const fitRef = useRef<Candle[] | null>(null)
   const demos = useMemo(() => Object.fromEntries(SYMBOLS.map(s => [s.symbol, genDemo(s)])) as Record<string, Candle[]>, [])
 
-  const [candles, setCandles] = useState<Candle[]>(demos['XAUUSD'])
+  const [candles, setCandles] = useState<Candle[]>(() => sampleFor('XAUUSD'))
   const [fileName, setFileName] = useState('')
+  const [compareSymbol, setCompareSymbol] = useState<string | null>(null)
+  const [wlSort, setWlSort] = useState<'default' | 'symbol' | 'change'>('default')
   const [symbol, setSymbol] = useState('XAUUSD')
   const [timeframe, setTimeframe] = useState('15m')
   const [chartType, setChartType] = useState<ChartType>('candles')
@@ -287,7 +293,9 @@ function App() {
     if (!s || !chart) return
     if (chartType === 'line' || chartType === 'area') (s as ISeriesApi<'Line'>).setData(shown.map(c => ({ time: c.time, value: c.close })))
     else (s as ISeriesApi<'Candlestick'>).setData(shown)
-    if (fitRef.current !== data) { fitRef.current = data; chart.timeScale().fitContent() }
+    // Fit only once the visible slice covers the new dataset; otherwise a stale (smaller) visibleCount
+    // makes fitContent() run on a handful of bars and the chart stays zoomed in after a timeframe change.
+    if (fitRef.current !== data) { if (visibleCount >= data.length) { fitRef.current = data; chart.timeScale().fitContent() } }
     else if (replay.playing) chart.timeScale().scrollToRealTime()
   }, [shown, chartType, seriesVersion]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -404,6 +412,55 @@ function App() {
     return () => lines.forEach(l => { try { s.removePriceLine(l) } catch { /* series gone */ } })
   }, [drawings, hideDrawings, seriesVersion])
 
+  // Compare overlay: another sample symbol, rebased to the main symbol's first visible price so both share one scale.
+  useEffect(() => {
+    const chart = chartRef.current
+    if (!chart || !compareSymbol || !isDemo || compareSymbol === symbol || !shown.length) return
+    const other = aggregate(sampleFor(compareSymbol), tfSec, baseSec)
+    const byTime = new Map(other.map(c => [Number(c.time), c.close]))
+    const firstOther = byTime.get(Number(shown[0].time))
+    if (!firstOther) return
+    const factor = shown[0].close / firstOther
+    const points = shown.flatMap(c => { const v = byTime.get(Number(c.time)); return v === undefined ? [] : [{ time: c.time, value: v * factor }] })
+    const color = SYMBOLS.find(s => s.symbol === compareSymbol)?.color ?? '#ff9800'
+    const line = chart.addSeries(LineSeries, { color, lineWidth: 2, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false })
+    line.setData(points)
+    return () => { if (chartRef.current === chart) { try { chart.removeSeries(line) } catch { /* disposed */ } } }
+  }, [compareSymbol, symbol, isDemo, shown, tfSec, baseSec, seriesVersion])
+
+  // Practice trades close themselves when a later bar touches the stop or the target (stop wins if both are touched).
+  useEffect(() => {
+    if (!shown.length) return
+    setTrades(list => {
+      let changed = false
+      const next = list.map(t => {
+        if (t.result !== 'OPEN' || !t.entryTime) return t
+        const start = shown.findIndex(c => Number(c.time) > t.entryTime!)
+        if (start < 0) return t
+        for (let i = start; i < shown.length; i++) {
+          const c = shown[i]
+          const stopHit = t.side === 'LONG' ? c.low <= t.stop : c.high >= t.stop
+          const targetHit = t.side === 'LONG' ? c.high >= t.target : c.low <= t.target
+          if (!stopHit && !targetHit) continue
+          const exit = stopHit ? t.stop : t.target
+          const risk = Math.abs(t.entry - t.stop) || 1
+          const r = (t.side === 'LONG' ? exit - t.entry : t.entry - exit) / risk - (Number(commission) || 0)
+          changed = true
+          return { ...t, exit, r, result: r > 0 ? 'WIN' as const : 'LOSS' as const }
+        }
+        return t
+      })
+      return changed ? next : list
+    })
+  }, [shown, commission])
+
+  // Toasts used to stay forever and covered the bottom panel buttons; dismiss them automatically.
+  useEffect(() => {
+    if (!notice) return
+    const id = window.setTimeout(() => setNotice(''), 5000)
+    return () => window.clearTimeout(id)
+  }, [notice])
+
   /* ---------- data / replay lifecycle ---------- */
   useEffect(() => {
     setVisibleCount(data.length)
@@ -442,7 +499,7 @@ function App() {
   const toggleMenu = (id: string) => setMenu(m => (m === id ? null : id))
   const selectSymbol = (sym: string) => {
     setSymbol(sym); setSymbolDialog(false); setQuery(''); setMenu(null); setMobilePanelOpen(false)
-    if (isDemo && demos[sym]) { setCandles(demos[sym]); setDrawings([]); setTrendLines([]); setFibDrawings([]); setBrushPaths([]); setChartTexts([]); setChartIcons([]); setMeasurements([]); setUndoHistory([]); setRedo([]) }
+    if (isDemo && demos[sym]) { setCandles(sampleFor(sym)); setCompareSymbol(c => (c === sym ? null : c)); setDrawings([]); setTrendLines([]); setFibDrawings([]); setBrushPaths([]); setChartTexts([]); setChartIcons([]); setMeasurements([]); setUndoHistory([]); setRedo([]) }
   }
   const submitSymbolQuery = () => {
     const q = query.trim().toUpperCase()
@@ -600,7 +657,7 @@ function App() {
   }, [])
   const keyHeaders = (): Record<string, string> => (uploadKey.trim() ? { 'x-upload-key': uploadKey.trim() } : {})
   const resetSample = () => {
-    setCandles(demos['XAUUSD']); setFileName(''); setStoredBlob(null); setCloudSummary(null); setSymbol('XAUUSD'); setTimeframe('15m'); setTrades([]); setTestResults(null)
+    setCandles(sampleFor('XAUUSD')); setFileName(''); setCompareSymbol(null); setStoredBlob(null); setCloudSummary(null); setSymbol('XAUUSD'); setTimeframe('15m'); setTrades([]); setTestResults(null)
     setDrawings([]); setTrendLines([]); setFibDrawings([]); setBrushPaths([]); setChartTexts([]); setChartIcons([]); setMeasurements([]); setUndoHistory([]); setRedo([]); setMenu(null); setNotice('دیتای نمونه بازنشانی شد.')
   }
   const recordTrade = (side: Side) => {
@@ -609,9 +666,47 @@ function App() {
     const distance = Math.max((last.high - last.low) * 1.5, entry * .001)
     const stop = side === 'LONG' ? entry - distance : entry + distance
     const target = side === 'LONG' ? entry + distance * Number(rr) : entry - distance * Number(rr)
-    setTrades(p => [{ id: Date.now(), side, entry, stop, target, exit: entry, result: 'OPEN', r: 0, entryIndex: visibleCount - 1, date: dateLabel(last.time) }, ...p])
-    setBottomOpen(true); setBottomTab('tester'); setTesterTab('trades')
-    setNotice(`معامله ${side === 'LONG' ? 'خرید' : 'فروش'} ثبت شد؛ خروجی خودکار برای این معامله هنوز فعال نیست.`)
+    setTrades(p => [{ id: Date.now(), side, entry, stop, target, exit: entry, result: 'OPEN', r: 0, entryIndex: visibleCount - 1, entryTime: Number(last.time), date: dateLabel(last.time) }, ...p])
+    setBottomOpen(true)
+    setNotice(`معامله ${side === 'LONG' ? 'خرید' : 'فروش'} ثبت شد؛ با رسیدن قیمت به حد ضرر یا حد سود (مثلاً با اجرای Replay) خودکار بسته می‌شود.`)
+  }
+  const closeOpenTrades = (onlyId?: number) => {
+    if (!last) return
+    let count = 0
+    setTrades(list => list.map(t => {
+      if (t.result !== 'OPEN' || (onlyId !== undefined && t.id !== onlyId)) return t
+      count++
+      const risk = Math.abs(t.entry - t.stop) || 1
+      const r = (t.side === 'LONG' ? last.close - t.entry : t.entry - last.close) / risk - (Number(commission) || 0)
+      return { ...t, exit: last.close, r, result: r > 0 ? 'WIN' as const : 'LOSS' as const }
+    }))
+    setNotice(count ? 'معاملات باز با آخرین قیمت بسته شدند.' : 'معامله‌ی بازی برای بستن وجود ندارد.')
+  }
+  // Cloud-backed data is aggregated on the server, so a new timeframe means a new request (any timeframe is allowed).
+  const changeTimeframe = async (tf: string) => {
+    if (tf === timeframe) return
+    const previous = timeframe
+    setTimeframe(tf)
+    setMenu(null)
+    if (!storedBlob) return
+    const sec = TIMEFRAMES.find(t => t.label === tf)?.sec ?? 900
+    setCloudProcessing(true)
+    setNotice(`در حال ساخت کندل‌های ${tf} از دیتای ابری…`)
+    try {
+      const response = await fetch('/api/blob-process', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...keyHeaders() },
+        body: JSON.stringify({ pathname: storedBlob.pathname, timeframeSec: sec, fastPeriod: Number(fastPeriod), slowPeriod: Number(slowPeriod), rr: Number(rr), riskPct: Number(riskPct), commission: Number(commission) }),
+      })
+      const payload = await response.json() as { error?: string; candles?: Candle[]; trades?: ClosedTrade[]; summary?: NonNullable<typeof cloudSummary> }
+      if (!response.ok || !payload.candles || !payload.summary || !payload.trades) throw new Error(payload.error || 'Cloud processing failed')
+      setCandles(payload.candles); setVisibleCount(payload.candles.length)
+      setCloudSummary(payload.summary); setTestResults(payload.trades)
+      setNotice(`تایم‌فریم ${tf} آماده شد.`)
+    } catch (e) {
+      setTimeframe(previous)
+      setNotice(e instanceof Error ? e.message : 'تغییر تایم‌فریم ناموفق بود.')
+    } finally { setCloudProcessing(false) }
   }
   const connectExistingBlob = useCallback(async (silent = false) => {
     setCloudProcessing(true)
@@ -628,7 +723,8 @@ function App() {
       setCandles(payload.candles); setFileName(name); setVisibleCount(payload.candles.length)
       setStoredBlob({ pathname: payload.pathname || name, size: 0, url: '' })
       setCloudSummary(payload.summary); setTestResults(payload.trades); setTrades([]); setDrawings([]); setTrendLines([]); setFibDrawings([]); setBrushPaths([]); setChartTexts([]); setChartIcons([]); setMeasurements([]); setUndoHistory([]); setRedo([])
-      setTesterTab('overview'); setBottomOpen(true); setBottomTab('tester'); setShowImport(false)
+      setTesterTab('overview'); setShowImport(false)
+      if (!silent) { setBottomOpen(true); setBottomTab('tester') }
       if (!silent) setNotice(`اتصال موفق: ${(payload.rawCandles?.toLocaleString() || '—')} کندل خام به ${(payload.chartBars?.toLocaleString() || '—')} کندل ${timeframe} تجمیع شد. برای سرعت، چارت آخرین ${Math.min(5000, payload.candles.length).toLocaleString()} کندل را نشان می‌دهد؛ آمار بک‌تست روی کل دیتاست محاسبه شده است.`)
     } catch (e) {
       if (!silent) setNotice(e instanceof Error ? e.message : 'اتصال به دیتای ذخیره‌شده ناموفق بود.')
@@ -665,7 +761,7 @@ function App() {
     setNotice(`بک‌تست تمام شد؛ ${result.length} معامله بررسی شد.`)
   }
   const exportTrades = () => {
-    const rows = testResults ?? trades
+    const rows = [...trades, ...(testResults ?? [])]
     if (!rows.length) { setNotice('هنوز معامله‌ای برای خروجی گرفتن وجود ندارد.'); return }
     const csv = ['id,side,entry,stop,target,exit,result,r,date', ...rows.map(t => [t.id, t.side, t.entry, t.stop, t.target, t.exit, t.result, t.r, t.date].join(','))].join('\n')
     const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }))
@@ -677,7 +773,7 @@ function App() {
   const ActiveTypeIcon = CHART_TYPES.find(c => c.id === chartType)!.Icon
   const filtered = SYMBOLS.filter(s => !query.trim() || s.symbol.includes(query.trim().toUpperCase()) || s.name.toUpperCase().includes(query.trim().toUpperCase()))
   const groups = Array.from(new Set(SYMBOLS.map(s => s.group)))
-  const tradeRows = testResults ?? trades
+  const tradeRows = [...trades, ...(testResults ?? [])]
   const sp = SPEEDS[replay.speed]
 
   return <main className="tv-app" ref={rootRef}>
@@ -687,15 +783,21 @@ function App() {
       <i className="tv-sep"/>
       <button className="tv-btn tv-symbol" onClick={() => setSymbolDialog(true)} title="Symbol Search"><Search size={16}/><b>{symbol}</b></button>
       <button className="tv-btn mobile-sidebar-toggle" title="Open panels" aria-label="Open watchlist and panels" aria-expanded={mobilePanelOpen} onClick={() => { setPanel(p => p ?? 'watchlist'); setMobilePanelOpen(v => !v) }}><List size={17}/></button>
-      <button className="tv-btn" title="Compare or Add Symbol" onClick={() => setNotice('مقایسه‌ی نمادها هنوز اضافه نشده است.')}><Plus size={18}/></button>
+      <div className="tv-menu-wrap" data-menu>
+        <button className={'tv-btn' + (compareSymbol ? ' sel' : '')} title="Compare or Add Symbol" aria-haspopup="menu" onClick={() => { if (!isDemo) { setNotice('مقایسه فقط روی نمادهای نمونه کار می‌کند؛ از Settings گزینه‌ی Reset to sample data را بزن.'); return } toggleMenu('compare') }}><Plus size={18}/></button>
+        {menu === 'compare' && <div className="tv-menu wide" role="menu"><div className="tv-menu-title">Compare symbol</div>
+          {SYMBOLS.filter(x => x.symbol !== symbol).map(x => <button key={x.symbol} role="menuitem" className={'tv-item' + (compareSymbol === x.symbol ? ' sel' : '')} onClick={() => { setCompareSymbol(x.symbol); setMenu(null); setNotice(`${x.symbol} روی چارت اضافه شد (هم‌مقیاس با ${symbol}).`) }}><i className="dot" style={{ background: x.color }}/><span>{x.symbol} · {x.name}</span>{compareSymbol === x.symbol && <Check size={14}/>}</button>)}
+          {compareSymbol && <button role="menuitem" className="tv-item" onClick={() => { setCompareSymbol(null); setMenu(null) }}><X size={14}/><span>Remove comparison</span></button>}
+          <div className="tv-menu-note">نماد انتخابی از اولین کندل قابل‌مشاهده هم‌قیمت با نماد اصلی رسم می‌شود تا حرکت‌ها قابل مقایسه باشند.</div></div>}
+      </div>
       <i className="tv-sep"/>
       {tfButtons.map(tf => {
         const sec = TIMEFRAMES.find(t => t.label === tf)?.sec ?? 0
-        return <button key={tf} className={'tv-btn tv-tf' + (timeframe === tf ? ' sel' : '')} disabled={sec < baseSec} title={sec < baseSec ? 'Finer than source data' : tf} onClick={() => setTimeframe(tf)}>{tf}</button>
+        return <button key={tf} className={'tv-btn tv-tf' + (timeframe === tf ? ' sel' : '')} disabled={cloudProcessing || (!storedBlob && sec < baseSec)} title={!storedBlob && sec < baseSec ? 'Finer than source data' : tf} onClick={() => void changeTimeframe(tf)}>{tf}</button>
       })}
       <div className="tv-menu-wrap" data-menu>
         <button className="tv-btn tv-narrow" title="Timeframes" onClick={() => toggleMenu('tf')}><ChevronDown size={14}/></button>
-        {menu === 'tf' && <div className="tv-menu">{TIMEFRAMES.map(t => <button key={t.label} className={'tv-item' + (timeframe === t.label ? ' sel' : '')} disabled={t.sec < baseSec} onClick={() => { setTimeframe(t.label); setMenu(null) }}><span>{t.label}</span>{timeframe === t.label && <Check size={14}/>}</button>)}</div>}
+        {menu === 'tf' && <div className="tv-menu">{TIMEFRAMES.map(t => <button key={t.label} className={'tv-item' + (timeframe === t.label ? ' sel' : '')} disabled={cloudProcessing || (!storedBlob && t.sec < baseSec)} onClick={() => void changeTimeframe(t.label)}><span>{t.label}</span>{timeframe === t.label && <Check size={14}/>}</button>)}</div>}
       </div>
       <i className="tv-sep"/>
       <div className="tv-menu-wrap" data-menu>
@@ -858,6 +960,7 @@ function App() {
             </div>}
             {indicators.fast && <div className="tv-legend-ind"><span style={{ color: '#2962ff' }}>SMA {fastPeriod}</span></div>}
             {indicators.slow && <div className="tv-legend-ind"><span style={{ color: '#ff9800' }}>SMA {slowPeriod}</span></div>}
+            {compareSymbol && isDemo && <div className="tv-legend-ind"><span style={{ color: SYMBOLS.find(x => x.symbol === compareSymbol)?.color }}>{compareSymbol} (rebased)</span></div>}
           </div>
 
           {replay.active && <div className="tv-replay-bar" role="toolbar" aria-label="Bar replay">
@@ -920,7 +1023,9 @@ function App() {
           {bottomOpen && bottomTab === 'trading' && <div className="tv-bottom-body tv-trading">
             <div><strong>Practice order</strong><p>ثبت معامله‌ی آزمایشی روی آخرین کندل قابل مشاهده ({symbol} @ {fmt(last?.close ?? 0, digits)}).</p></div>
             <div className="tv-order"><button className="sell" onClick={() => recordTrade('SHORT')}><TrendingDown size={15}/> Sell {fmt(last?.close ?? 0, digits)}</button><button className="buy" onClick={() => recordTrade('LONG')}><TrendingUp size={15}/> Buy {fmt(last?.close ?? 0, digits)}</button></div>
+            <button className="tv-ghost" onClick={() => closeOpenTrades()} disabled={!trades.some(t => t.result === 'OPEN')}>Close open trades ({trades.filter(t => t.result === 'OPEN').length})</button>
             <button className="tv-ghost" onClick={() => { setBottomTab('tester'); setTesterTab('trades') }}>Open trade log ({trades.length})</button>
+            {trades.length > 0 && <div className="tv-trade-mini"><table className="tv-table"><thead><tr><th>Side</th><th>Entry</th><th>Stop</th><th>Target</th><th>Status</th><th>R</th><th></th></tr></thead><tbody>{trades.slice(0, 6).map(t => <tr key={t.id}><td className={t.side === 'LONG' ? 'up' : 'down'}>{t.side}</td><td>{fmt(t.entry, digits)}</td><td>{fmt(t.stop, digits)}</td><td>{fmt(t.target, digits)}</td><td><span className={t.result === 'OPEN' ? 'pill open' : t.r > 0 ? 'pill win' : 'pill loss'}>{t.result}</span></td><td className={t.result === 'OPEN' ? '' : t.r > 0 ? 'up' : 'down'}>{t.result === 'OPEN' ? '—' : t.r.toFixed(2) + 'R'}</td><td>{t.result === 'OPEN' && <button className="tv-ghost" onClick={() => closeOpenTrades(t.id)}>Close</button>}</td></tr>)}</tbody></table></div>}
           </div>}
         </div>
       </section>
@@ -929,10 +1034,16 @@ function App() {
       <aside className={'tv-right' + (mobilePanelOpen ? ' mobile-open' : '')}>
         {panel && <section className="tv-panel">
           {panel === 'watchlist' && <>
-            <div className="tv-panel-head"><button className="tv-panel-title">Watchlist <ChevronDown size={14}/></button><div className="tv-spacer"/><button className="tv-btn tv-narrow" title="Add symbol" onClick={() => setSymbolDialog(true)}><Plus size={17}/></button><button className="tv-btn tv-narrow" title="More" onClick={() => setNotice('گزینه‌های بیشتر لیست پیگیری هنوز اضافه نشده است.')}><Ellipsis size={17}/></button></div>
+            <div className="tv-panel-head"><span className="tv-panel-title">Watchlist</span><div className="tv-spacer"/><button className="tv-btn tv-narrow" title="Add symbol" onClick={() => setSymbolDialog(true)}><Plus size={17}/></button>
+              <div className="tv-menu-wrap" data-menu>
+                <button className={'tv-btn tv-narrow' + (wlSort !== 'default' ? ' sel' : '')} title="More" aria-haspopup="menu" onClick={() => toggleMenu('wlmore')}><Ellipsis size={17}/></button>
+                {menu === 'wlmore' && <div className="tv-menu right" role="menu"><div className="tv-menu-title">Sort watchlist</div>
+                  {([['default', 'Default order'], ['symbol', 'Symbol A → Z'], ['change', 'Change % (high → low)']] as const).map(([id, label]) => <button key={id} role="menuitem" className={'tv-item' + (wlSort === id ? ' sel' : '')} onClick={() => { setWlSort(id); setMenu(null) }}><span>{label}</span>{wlSort === id && <Check size={14}/>}</button>)}
+                  <button role="menuitem" className="tv-item" onClick={() => { setMenu(null); setSymbolDialog(true) }}><Plus size={14}/><span>Add symbol…</span></button></div>}
+              </div></div>
             <div className="tv-wl-cols"><span>Symbol</span><span>Last</span><span>Chg</span><span>Chg%</span></div>
             <div className="tv-wl-list">{groups.map(g => <div key={g}><div className="tv-wl-group"><ChevronDown size={12}/>{g}</div>
-              {SYMBOLS.filter(s => s.group === g).map(s => {
+              {SYMBOLS.filter(s => s.group === g).sort((a, b) => { const pct = (x: SymbolInfo) => x.symbol === symbol ? activeStats.pct : dayStats(demos[x.symbol], demos[x.symbol].length - 1, 96).pct; return wlSort === 'symbol' ? a.symbol.localeCompare(b.symbol) : wlSort === 'change' ? pct(b) - pct(a) : 0 }).map(s => {
                 const active = s.symbol === symbol
                 const st = active ? activeStats : dayStats(demos[s.symbol], demos[s.symbol].length - 1, 96)
                 const cls = st.chg >= 0 ? 'up' : 'down'

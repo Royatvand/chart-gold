@@ -88,3 +88,52 @@ button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible
 
 /* Replay speed menu opens upward from the replay bar */
 .tv-menu.up { top: auto; bottom: calc(100% + 5px); }
+
+/* ===== Layout fixes: legend + replay toolbar were rendered *under* the absolutely positioned chart ===== */
+.tv-chart-wrap .tv-legend {
+  position: absolute;
+  top: 0; left: 0; right: 64px;           /* keep clear of the price scale */
+  z-index: 6;
+  min-height: 0;
+  padding: 6px 10px;
+  gap: 4px 12px;
+  border: 0;
+  background: transparent;
+  pointer-events: none;                    /* never block chart clicks / drawing */
+}
+.tv-chart-wrap .tv-legend-title { flex-direction: row; align-items: center; gap: 6px; min-width: 0; }
+.tv-chart-wrap .tv-legend-title b { color: var(--tv-text-strong); font-size: 13px; }
+.tv-chart-wrap .tv-legend-title span { color: var(--tv-muted); font-size: 11px; }
+.tv-chart-wrap .tv-legend-ohlc { font-size: 11px; }
+
+.tv-chart-wrap .tv-replay-bar {
+  position: absolute;
+  left: 50%; bottom: 44px;
+  transform: translateX(-50%);
+  z-index: 8;
+  width: max-content;
+  max-width: calc(100% - 20px);
+  justify-content: center;
+  padding: 5px 8px;
+  gap: 4px;
+  background: var(--tv-panel);
+  border: 1px solid #434957;
+  border-radius: 8px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, .55);
+}
+.tv-chart-wrap .tv-replay-bar .tv-sep { height: 18px; margin: 0 2px; }
+.tv-chart-wrap .tv-replay-bar .tv-rbtn { display: inline-flex; align-items: center; gap: 5px; padding: 6px 8px; font-size: 11px; }
+.tv-chart-wrap .tv-replay-bar .tv-rbtn.icon { padding: 6px; }
+.tv-chart-wrap .tv-replay-bar .tv-rhint {
+  position: absolute; left: 50%; bottom: calc(100% + 8px); transform: translateX(-50%);
+  padding: 5px 10px; border-radius: 5px; background: var(--tv-blue); color: #fff; font-size: 11px; white-space: nowrap;
+}
+.tv-chart-wrap .tv-menu.up { top: auto; bottom: calc(100% + 6px); left: 0; z-index: 30; }
+@media (max-width: 600px) {
+  .tv-chart-wrap .tv-replay-bar { bottom: 40px; flex-wrap: wrap; }
+  .tv-chart-wrap .tv-legend { right: 56px; }
+}
+
+/* Practice positions inside the Trading Panel */
+.tv-trading .tv-trade-mini { flex-basis: 100%; overflow: auto; max-height: 190px; }
+.tv-trade-mini .tv-ghost { padding: 3px 8px; font-size: 10px; }
