@@ -16,9 +16,37 @@ export const SYMBOLS: SymbolInfo[] = [
   { symbol: 'AUDUSD', name: 'Australian Dollar / U.S. Dollar', group: 'FOREX', base: 0.655, digits: 5, seed: 89, color: '#26a69a' },
   { symbol: 'BTCUSD', name: 'Bitcoin / U.S. Dollar', group: 'CRYPTO', base: 67420, digits: 2, seed: 101, color: '#f7931a' },
   { symbol: 'ETHUSD', name: 'Ethereum / U.S. Dollar', group: 'CRYPTO', base: 3520, digits: 2, seed: 113, color: '#8c9eff' },
+  { symbol: 'BTCIRT', name: 'Bitcoin / Iranian Toman', group: 'NOBITEX', base: 0, digits: 0, seed: 127, color: '#f7931a' },
+  { symbol: 'ETHIRT', name: 'Ethereum / Iranian Toman', group: 'NOBITEX', base: 0, digits: 0, seed: 131, color: '#8c9eff' },
+  { symbol: 'USDTIRT', name: 'Tether / Iranian Toman', group: 'NOBITEX', base: 0, digits: 0, seed: 137, color: '#26a69a' },
+  { symbol: 'LTCIRT', name: 'Litecoin / Iranian Toman', group: 'NOBITEX', base: 0, digits: 0, seed: 139, color: '#9ca3af' },
+  { symbol: 'XRPIRT', name: 'XRP / Iranian Toman', group: 'NOBITEX', base: 0, digits: 0, seed: 149, color: '#78909c' },
+  { symbol: 'DOGEIRT', name: 'Dogecoin / Iranian Toman', group: 'NOBITEX', base: 0, digits: 0, seed: 151, color: '#d4a72c' },
+  { symbol: 'TRXIRT', name: 'TRON / Iranian Toman', group: 'NOBITEX', base: 0, digits: 0, seed: 157, color: '#ef5350' },
+  { symbol: 'ADAIRT', name: 'Cardano / Iranian Toman', group: 'NOBITEX', base: 0, digits: 0, seed: 163, color: '#2962ff' },
+  { symbol: 'BNBIRT', name: 'BNB / Iranian Toman', group: 'NOBITEX', base: 0, digits: 0, seed: 167, color: '#f0b90b' },
+  { symbol: 'SOLIRT', name: 'Solana / Iranian Toman', group: 'NOBITEX', base: 0, digits: 0, seed: 173, color: '#8c9eff' },
+  { symbol: 'BTCUSDT', name: 'Bitcoin / Tether', group: 'NOBITEX', base: 0, digits: 2, seed: 179, color: '#f7931a' },
+  { symbol: 'ETHUSDT', name: 'Ethereum / Tether', group: 'NOBITEX', base: 0, digits: 2, seed: 181, color: '#8c9eff' },
   { symbol: 'USOIL', name: 'Crude Oil', group: 'ENERGIES', base: 72.18, digits: 2, seed: 127, color: '#78909c' },
   { symbol: 'NAS100', name: 'Nasdaq 100', group: 'INDICES', base: 19850, digits: 2, seed: 139, color: '#42a5f5' },
 ]
+
+// These symbols use real OHLC candles from Nobitex instead of generated demo data.
+export const NOBITEX_SYMBOLS: Record<string, string> = {
+  BTCIRT: 'BTCIRT',
+  ETHIRT: 'ETHIRT',
+  USDTIRT: 'USDTIRT',
+  LTCIRT: 'LTCIRT',
+  XRPIRT: 'XRPIRT',
+  DOGEIRT: 'DOGEIRT',
+  TRXIRT: 'TRXIRT',
+  ADAIRT: 'ADAIRT',
+  BNBIRT: 'BNBIRT',
+  SOLIRT: 'SOLIRT',
+  BTCUSDT: 'BTCUSDT',
+  ETHUSDT: 'ETHUSDT',
+}
 
 export const TIMEFRAMES: Timeframe[] = [
   { label: '1m', sec: 60 }, { label: '3m', sec: 180 }, { label: '5m', sec: 300 },
