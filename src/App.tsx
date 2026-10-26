@@ -13,7 +13,7 @@ import {
 } from 'lucide-react'
 import {
   SYMBOLS, TIMEFRAMES, aggregate, dateLabel, detectBaseSec, fmt, genDemo, indexByTime, inferDigits, parseCsvFile,
-  runBacktest, smaLine, tfForBase, type Candle, type ClosedTrade, type Side, type SymbolInfo, type Trade,
+  runBacktest, smaLine, tfForBase, NOBITEX_SYMBOLS, type Candle, type ClosedTrade, type Side, type SymbolInfo, type Trade,
 } from './lib/market'
 
 const FONT = '-apple-system, BlinkMacSystemFont, "Trebuchet MS", Roboto, Ubuntu, sans-serif'
@@ -83,6 +83,7 @@ function App() {
   const demos = useMemo(() => Object.fromEntries(SYMBOLS.map(s => [s.symbol, genDemo(s)])) as Record<string, Candle[]>, [])
 
   const [candles, setCandles] = useState<Candle[]>(() => sampleFor('XAUUSD'))
+  const [liveLoading, setLiveLoading] = useState(false)
   const [fileName, setFileName] = useState('')
   const [compareSymbol, setCompareSymbol] = useState<string | null>(null)
   const [wlSort, setWlSort] = useState<'default' | 'symbol' | 'change'>('default')
@@ -151,7 +152,7 @@ function App() {
   const [commission, setCommission] = useState('0')
   const [testResults, setTestResults] = useState<ClosedTrade[] | null>(null)
 
-  const isDemo = fileName === ''
+  const isDemo = fileName === '' && !NOBITEX_SYMBOLS[symbol]
   const info: SymbolInfo = SYMBOLS.find(s => s.symbol === symbol) ?? { symbol, name: symbol, group: 'CUSTOM', base: 0, digits: 2, seed: 0, color: '#2962ff' }
   const digits = useMemo(() => (isDemo ? info.digits : inferDigits(candles)), [isDemo, info.digits, candles])
   const baseSec = useMemo(() => detectBaseSec(candles), [candles])
@@ -461,6 +462,89 @@ function App() {
     return () => window.clearTimeout(id)
   }, [notice])
 
+  // Load and refresh real Nobitex OHLC candles for supported crypto markets.
+  // Poll at most once per minute to stay within the public API's 60 requests/minute limit.
+  useEffect(() => {
+    const marketSymbol = NOBITEX_SYMBOLS[symbol]
+    if (!marketSymbol) return
+    let active = true
+    let firstLoad = true
+    let requestInFlight = false
+
+    const resolutionFor = (label: string) => {
+      if (label === '1m' || label === '3m') return '1'
+      if (label === '5m') return '5'
+      if (label === '15m') return '15'
+      if (label === '30m') return '30'
+      if (label === '1h' || label === '2h') return '60'
+      if (label === '4h') return '240'
+      if (label === '1D' || label === '1W') return 'D'
+      return '15'
+    }
+
+    const loadLiveCandles = async () => {
+      if (requestInFlight) return
+      requestInFlight = true
+      if (firstLoad) setLiveLoading(true)
+      try {
+        const resolution = resolutionFor(timeframe)
+        const params = new URLSearchParams({
+          symbol: marketSymbol,
+          resolution,
+          to: String(Math.floor(Date.now() / 1000)),
+          countback: '500',
+        })
+        const response = await fetch(`/api/nobitex-history?${params.toString()}`, { headers: { Accept: 'application/json' } })
+        const payload = await response.json() as {
+          s?: string
+          t?: number[]
+          o?: number[]
+          h?: number[]
+          l?: number[]
+          c?: number[]
+          v?: number[]
+          errmsg?: string
+          error?: string
+        }
+        if (!response.ok) throw new Error(payload.error || payload.errmsg || 'دریافت داده از نوبیتکس ناموفق بود.')
+        if (payload.s !== 'ok' || !payload.t?.length || !payload.o || !payload.h || !payload.l || !payload.c) {
+          throw new Error(payload.errmsg || 'برای این نماد در این تایم‌فریم داده‌ای پیدا نشد.')
+        }
+        const nextCandles: Candle[] = payload.t.flatMap((time, index) => {
+          const open = payload.o?.[index], high = payload.h?.[index], low = payload.l?.[index], close = payload.c?.[index]
+          if (![time, open, high, low, close].every(Number.isFinite) || high! < low!) return []
+          return [{
+            time: Math.floor(time) as Candle['time'],
+            open: open!,
+            high: high!,
+            low: low!,
+            close: close!,
+            volume: Number.isFinite(payload.v?.[index]) ? payload.v![index] : 0,
+          }]
+        })
+        if (!nextCandles.length) throw new Error('داده‌های دریافتی معتبر نیستند.')
+        if (!active) return
+        setCandles(nextCandles)
+        setVisibleCount(nextCandles.length)
+        setFileName('')
+        setStoredBlob(null)
+        setCloudSummary(null)
+        setTestResults(null)
+        if (firstLoad) setNotice(`داده زنده ${marketSymbol} از نوبیتکس دریافت شد؛ ${nextCandles.length} کندل بارگذاری شد.`)
+      } catch (error) {
+        if (active && firstLoad) setNotice(error instanceof Error ? error.message : 'اتصال به نوبیتکس ناموفق بود.')
+      } finally {
+        if (active) setLiveLoading(false)
+        firstLoad = false
+        requestInFlight = false
+      }
+    }
+
+    void loadLiveCandles()
+    const intervalId = window.setInterval(() => { void loadLiveCandles() }, 60_000)
+    return () => { active = false; window.clearInterval(intervalId) }
+  }, [symbol, timeframe])
+
   /* ---------- data / replay lifecycle ---------- */
   useEffect(() => {
     setVisibleCount(data.length)
@@ -499,7 +583,12 @@ function App() {
   const toggleMenu = (id: string) => setMenu(m => (m === id ? null : id))
   const selectSymbol = (sym: string) => {
     setSymbol(sym); setSymbolDialog(false); setQuery(''); setMenu(null); setMobilePanelOpen(false)
-    if (isDemo && demos[sym]) { setCandles(sampleFor(sym)); setCompareSymbol(c => (c === sym ? null : c)); setDrawings([]); setTrendLines([]); setFibDrawings([]); setBrushPaths([]); setChartTexts([]); setChartIcons([]); setMeasurements([]); setUndoHistory([]); setRedo([]) }
+    if (NOBITEX_SYMBOLS[sym]) {
+      setCandles([]); setFileName(''); setStoredBlob(null); setCloudSummary(null); setTestResults(null); setTrades([])
+      setCompareSymbol(null); setDrawings([]); setTrendLines([]); setFibDrawings([]); setBrushPaths([]); setChartTexts([]); setChartIcons([]); setMeasurements([]); setUndoHistory([]); setRedo([])
+    } else if (fileName === '' && demos[sym]) {
+      setCandles(sampleFor(sym)); setCompareSymbol(c => (c === sym ? null : c)); setDrawings([]); setTrendLines([]); setFibDrawings([]); setBrushPaths([]); setChartTexts([]); setChartIcons([]); setMeasurements([]); setUndoHistory([]); setRedo([])
+    }
   }
   const submitSymbolQuery = () => {
     const q = query.trim().toUpperCase()
@@ -781,7 +870,7 @@ function App() {
     <header className="tv-top">
       <button className="tv-logo" title="ChartGold" aria-label="ChartGold"><Activity size={18}/></button>
       <i className="tv-sep"/>
-      <button className="tv-btn tv-symbol" onClick={() => setSymbolDialog(true)} title="Symbol Search"><Search size={16}/><b>{symbol}</b></button>
+      <button className="tv-btn tv-symbol" onClick={() => setSymbolDialog(true)} title={NOBITEX_SYMBOLS[symbol] ? "Nobitex live OHLC" : "Symbol Search"}><Search size={16}/><b>{symbol}{NOBITEX_SYMBOLS[symbol] ? (liveLoading ? " · loading" : " · LIVE") : ""}</b></button>
       <button className="tv-btn mobile-sidebar-toggle" title="Open panels" aria-label="Open watchlist and panels" aria-expanded={mobilePanelOpen} onClick={() => { setPanel(p => p ?? 'watchlist'); setMobilePanelOpen(v => !v) }}><List size={17}/></button>
       <div className="tv-menu-wrap" data-menu>
         <button className={'tv-btn' + (compareSymbol ? ' sel' : '')} title="Compare or Add Symbol" aria-haspopup="menu" onClick={() => { if (!isDemo) { setNotice('مقایسه فقط روی نمادهای نمونه کار می‌کند؛ از Settings گزینه‌ی Reset to sample data را بزن.'); return } toggleMenu('compare') }}><Plus size={18}/></button>
