@@ -13,7 +13,7 @@ import {
 } from 'lucide-react'
 import {
   SYMBOLS, TIMEFRAMES, aggregate, dateLabel, detectBaseSec, fmt, genDemo, indexByTime, inferDigits, parseCsvFile,
-  runBacktest, smaLine, tfForBase, NOBITEX_SYMBOLS, type Candle, type ClosedTrade, type Side, type SymbolInfo, type Trade,
+  runBacktest, smaLine, tfForBase, NOBITEX_SYMBOLS, BINANCE_SYMBOLS, type Candle, type ClosedTrade, type Side, type SymbolInfo, type Trade,
 } from './lib/market'
 
 const FONT = '-apple-system, BlinkMacSystemFont, "Trebuchet MS", Roboto, Ubuntu, sans-serif'
@@ -154,7 +154,8 @@ function App() {
   const [commission, setCommission] = useState('0')
   const [testResults, setTestResults] = useState<ClosedTrade[] | null>(null)
 
-  const isDemo = fileName === '' && !NOBITEX_SYMBOLS[symbol]
+  const isLiveMarket = Boolean(NOBITEX_SYMBOLS[symbol] || BINANCE_SYMBOLS[symbol])
+  const isDemo = fileName === '' && !isLiveMarket
   const info: SymbolInfo = SYMBOLS.find(s => s.symbol === symbol) ?? { symbol, name: symbol, group: 'CUSTOM', base: 0, digits: 2, seed: 0, color: '#2962ff' }
   const digits = useMemo(() => (isDemo ? info.digits : inferDigits(candles)), [isDemo, info.digits, candles])
   const baseSec = useMemo(() => detectBaseSec(candles), [candles])
@@ -549,6 +550,72 @@ function App() {
     return () => { active = false; window.clearInterval(intervalId) }
   }, [symbol, timeframe])
 
+  // Load and refresh real Binance Spot OHLC candles for USDT crypto pairs.
+  // Public klines require no API key; refresh once per minute.
+  useEffect(() => {
+    const marketSymbol = BINANCE_SYMBOLS[symbol]
+    if (!marketSymbol) return
+    let active = true
+    let firstLoad = true
+    let requestInFlight = false
+
+    const intervalFor = (label: string) => {
+      const supported = new Set(['1m', '3m', '5m', '15m', '30m', '1h', '2h', '4h', '1d', '1w'])
+      return supported.has(label) ? label : '15m'
+    }
+
+    const loadBinanceCandles = async () => {
+      if (requestInFlight) return
+      requestInFlight = true
+      if (firstLoad) setLiveLoading(true)
+      try {
+        const params = new URLSearchParams({ symbol: marketSymbol, interval: intervalFor(timeframe), limit: '500' })
+        const response = await fetch(`https://api.binance.com/api/v3/klines?${params.toString()}`, {
+          headers: { Accept: 'application/json' },
+        })
+        const payload = await response.json() as unknown
+        if (!response.ok) {
+          const message = payload && typeof payload === 'object' && 'msg' in payload
+            ? String((payload as { msg: unknown }).msg)
+            : 'دریافت داده از Binance ناموفق بود.'
+          throw new Error(message)
+        }
+        if (!Array.isArray(payload)) throw new Error('پاسخ کندل‌های Binance معتبر نیست.')
+        const nextCandles: Candle[] = payload.flatMap((row: unknown) => {
+          if (!Array.isArray(row) || row.length < 6) return []
+          const timeMs = Number(row[0]), open = Number(row[1]), high = Number(row[2])
+          const low = Number(row[3]), close = Number(row[4]), volume = Number(row[5])
+          if (![timeMs, open, high, low, close].every(Number.isFinite) || high < low) return []
+          return [{
+            time: Math.floor(timeMs / 1000) as Candle['time'],
+            open, high, low, close, volume: Number.isFinite(volume) ? volume : 0,
+          }]
+        })
+        if (!nextCandles.length) throw new Error('برای این نماد داده کندل پیدا نشد.')
+        if (!active) return
+        setCandles(nextCandles)
+        setVisibleCount(nextCandles.length)
+        setLiveConnected(true)
+        setFileName('')
+        setStoredBlob(null)
+        setCloudSummary(null)
+        setTestResults(null)
+        if (firstLoad) setNotice(`داده زنده ${marketSymbol} از Binance دریافت شد؛ ${nextCandles.length} کندل بارگذاری شد.`)
+      } catch (error) {
+        if (active) setLiveConnected(false)
+        if (active && firstLoad) setNotice(error instanceof Error ? error.message : 'اتصال به Binance ناموفق بود.')
+      } finally {
+        if (active) setLiveLoading(false)
+        firstLoad = false
+        requestInFlight = false
+      }
+    }
+
+    void loadBinanceCandles()
+    const intervalId = window.setInterval(() => { void loadBinanceCandles() }, 60_000)
+    return () => { active = false; window.clearInterval(intervalId) }
+  }, [symbol, timeframe])
+
   /* ---------- data / replay lifecycle ---------- */
   useEffect(() => {
     setVisibleCount(data.length)
@@ -587,7 +654,7 @@ function App() {
   const toggleMenu = (id: string) => setMenu(m => (m === id ? null : id))
   const selectSymbol = (sym: string) => {
     setSymbol(sym); setSymbolDialog(false); setQuery(''); setMenu(null); setMobilePanelOpen(false)
-    if (NOBITEX_SYMBOLS[sym]) {
+    if (NOBITEX_SYMBOLS[sym] || BINANCE_SYMBOLS[sym]) {
       setCandles([]); setFileName(''); setStoredBlob(null); setCloudSummary(null); setTestResults(null); setTrades([])
       setLiveConnected(false)
       setCompareSymbol(null); setDrawings([]); setTrendLines([]); setFibDrawings([]); setBrushPaths([]); setChartTexts([]); setChartIcons([]); setMeasurements([]); setUndoHistory([]); setRedo([])
@@ -867,7 +934,10 @@ function App() {
   const tfButtons = QUICK_TF.includes(timeframe) ? QUICK_TF : [timeframe, ...QUICK_TF]
   const ActiveTypeIcon = CHART_TYPES.find(c => c.id === chartType)!.Icon
   const filtered = SYMBOLS.filter(s => !query.trim() || s.symbol.includes(query.trim().toUpperCase()) || s.name.toUpperCase().includes(query.trim().toUpperCase()))
-  const groups = Array.from(new Set(SYMBOLS.map(s => s.group))).sort((a, b) => a === 'NOBITEX' ? -1 : b === 'NOBITEX' ? 1 : 0)
+  const groups = Array.from(new Set(SYMBOLS.map(s => s.group))).sort((a, b) => {
+    const order: Record<string, number> = { NOBITEX: 0, BINANCE: 1 }
+    return (order[a] ?? 2) - (order[b] ?? 2) || a.localeCompare(b)
+  })
   const tradeRows = [...trades, ...(testResults ?? [])]
   const sp = SPEEDS[replay.speed]
 
@@ -876,7 +946,7 @@ function App() {
     <header className="tv-top">
       <button className="tv-logo" title="ChartGold" aria-label="ChartGold"><Activity size={18}/></button>
       <i className="tv-sep"/>
-      <button className="tv-btn tv-symbol" onClick={() => setSymbolDialog(true)} title={NOBITEX_SYMBOLS[symbol] ? "Nobitex live OHLC" : "Symbol Search"}><Search size={16}/><b>{symbol}{NOBITEX_SYMBOLS[symbol] ? (liveLoading ? " · loading" : liveConnected ? " · LIVE" : " · offline") : ""}</b></button>
+      <button className="tv-btn tv-symbol" onClick={() => setSymbolDialog(true)} title={NOBITEX_SYMBOLS[symbol] ? "Nobitex live OHLC" : BINANCE_SYMBOLS[symbol] ? "Binance Spot live OHLC" : "Symbol Search"}><Search size={16}/><b>{symbol}{isLiveMarket ? (liveLoading ? " · loading" : liveConnected ? " · LIVE" : " · offline") : ""}</b></button>
       <button className="tv-btn mobile-sidebar-toggle" title="Open panels" aria-label="Open watchlist and panels" aria-expanded={mobilePanelOpen} onClick={() => { setPanel(p => p ?? 'watchlist'); setMobilePanelOpen(v => !v) }}><List size={17}/></button>
       <div className="tv-menu-wrap" data-menu>
         <button className={'tv-btn' + (compareSymbol ? ' sel' : '')} title="Compare or Add Symbol" aria-haspopup="menu" onClick={() => { if (!isDemo) { setNotice('مقایسه فقط روی نمادهای نمونه کار می‌کند؛ از Settings گزینه‌ی Reset to sample data را بزن.'); return } toggleMenu('compare') }}><Plus size={18}/></button>
@@ -1137,10 +1207,10 @@ function App() {
                   <button role="menuitem" className="tv-item" onClick={() => { setMenu(null); setSymbolDialog(true) }}><Plus size={14}/><span>Add symbol…</span></button></div>}
               </div></div>
             <div className="tv-wl-cols"><span>Symbol</span><span>Last</span><span>Chg</span><span>Chg%</span></div>
-            <div className="tv-wl-list">{groups.map(g => <div key={g}><div className="tv-wl-group"><ChevronDown size={12}/>{g === 'NOBITEX' ? 'CRYPTO · LIVE NOBITEX' : g}</div>
+            <div className="tv-wl-list">{groups.map(g => <div key={g}><div className="tv-wl-group"><ChevronDown size={12}/>{g === 'NOBITEX' ? 'CRYPTO · LIVE NOBITEX' : g === 'BINANCE' ? 'CRYPTO · LIVE BINANCE' : g}</div>
               {SYMBOLS.filter(s => s.group === g).sort((a, b) => { const pct = (x: SymbolInfo) => x.symbol === symbol ? activeStats.pct : dayStats(demos[x.symbol], demos[x.symbol].length - 1, 96).pct; return wlSort === 'symbol' ? a.symbol.localeCompare(b.symbol) : wlSort === 'change' ? pct(b) - pct(a) : 0 }).map(s => {
                 const active = s.symbol === symbol
-                const liveOnly = Boolean(NOBITEX_SYMBOLS[s.symbol])
+                const liveOnly = Boolean(NOBITEX_SYMBOLS[s.symbol] || BINANCE_SYMBOLS[s.symbol])
                 const st = active ? (liveOnly && !candles.length ? null : activeStats) : liveOnly ? null : dayStats(demos[s.symbol], demos[s.symbol].length - 1, 96)
                 const cls = st && st.chg >= 0 ? 'up' : 'down'
                 return <button key={s.symbol} className={'tv-wl-row' + (active ? ' active' : '')} onClick={() => selectSymbol(s.symbol)}>
@@ -1154,7 +1224,7 @@ function App() {
                 <div><span>Open</span><b>{fmt(bar?.open ?? 0, digits)}</b></div><div><span>High</span><b>{fmt(bar?.high ?? 0, digits)}</b></div>
                 <div><span>Low</span><b>{fmt(bar?.low ?? 0, digits)}</b></div><div><span>Prev close</span><b>{fmt(barPrev?.close ?? bar?.open ?? 0, digits)}</b></div>
               </div>
-              <p className="tv-wl-note">{NOBITEX_SYMBOLS[symbol] ? (liveConnected ? 'داده زنده نوبیتکس؛ به‌روزرسانی تقریباً هر ۶۰ ثانیه.' : liveLoading ? 'در حال دریافت کندل‌های زنده از نوبیتکس…' : 'اتصال زنده برقرار نیست؛ نماد را دوباره انتخاب کن تا دریافت داده امتحان شود.') : 'قیمت‌ها نمونه‌اند مگر اینکه CSV خودت را وارد کنی.'}</p>
+              <p className="tv-wl-note">{NOBITEX_SYMBOLS[symbol] ? (liveConnected ? 'داده زنده نوبیتکس؛ به‌روزرسانی تقریباً هر ۶۰ ثانیه.' : liveLoading ? 'در حال دریافت کندل‌های زنده از نوبیتکس…' : 'اتصال زنده برقرار نیست؛ نماد را دوباره انتخاب کن تا دریافت داده امتحان شود.') : BINANCE_SYMBOLS[symbol] ? (liveConnected ? 'داده زنده Binance Spot؛ به‌روزرسانی تقریباً هر ۶۰ ثانیه.' : liveLoading ? 'در حال دریافت کندل‌های زنده از Binance…' : 'اتصال Binance برقرار نیست؛ اتصال اینترنت یا دسترسی API را بررسی کن.') : 'قیمت‌ها نمونه‌اند مگر اینکه CSV خودت را وارد کنی.'}</p>
             </div>
           </>}
           {panel === 'alerts' && <><div className="tv-panel-head"><span className="tv-panel-title">Alerts ({priceAlerts.filter(a => a.active).length})</span><div className="tv-spacer"/><button className="tv-btn tv-narrow" title="Create alert" onClick={() => { setAlertPrice(String(last?.close ?? '')); setShowAlertDialog(true) }}><Plus size={17}/></button></div>
