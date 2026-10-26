@@ -84,6 +84,7 @@ function App() {
 
   const [candles, setCandles] = useState<Candle[]>(() => sampleFor('XAUUSD'))
   const [liveLoading, setLiveLoading] = useState(false)
+  const [liveConnected, setLiveConnected] = useState(false)
   const [fileName, setFileName] = useState('')
   const [compareSymbol, setCompareSymbol] = useState<string | null>(null)
   const [wlSort, setWlSort] = useState<'default' | 'symbol' | 'change'>('default')
@@ -527,12 +528,14 @@ function App() {
         if (!active) return
         setCandles(nextCandles)
         setVisibleCount(nextCandles.length)
+        setLiveConnected(true)
         setFileName('')
         setStoredBlob(null)
         setCloudSummary(null)
         setTestResults(null)
         if (firstLoad) setNotice(`داده زنده ${marketSymbol} از نوبیتکس دریافت شد؛ ${nextCandles.length} کندل بارگذاری شد.`)
       } catch (error) {
+        if (active) setLiveConnected(false)
         if (active && firstLoad) setNotice(error instanceof Error ? error.message : 'اتصال به نوبیتکس ناموفق بود.')
       } finally {
         if (active) setLiveLoading(false)
@@ -586,6 +589,7 @@ function App() {
     setSymbol(sym); setSymbolDialog(false); setQuery(''); setMenu(null); setMobilePanelOpen(false)
     if (NOBITEX_SYMBOLS[sym]) {
       setCandles([]); setFileName(''); setStoredBlob(null); setCloudSummary(null); setTestResults(null); setTrades([])
+      setLiveConnected(false)
       setCompareSymbol(null); setDrawings([]); setTrendLines([]); setFibDrawings([]); setBrushPaths([]); setChartTexts([]); setChartIcons([]); setMeasurements([]); setUndoHistory([]); setRedo([])
     } else if (fileName === '' && demos[sym]) {
       setCandles(sampleFor(sym)); setCompareSymbol(c => (c === sym ? null : c)); setDrawings([]); setTrendLines([]); setFibDrawings([]); setBrushPaths([]); setChartTexts([]); setChartIcons([]); setMeasurements([]); setUndoHistory([]); setRedo([])
@@ -872,7 +876,7 @@ function App() {
     <header className="tv-top">
       <button className="tv-logo" title="ChartGold" aria-label="ChartGold"><Activity size={18}/></button>
       <i className="tv-sep"/>
-      <button className="tv-btn tv-symbol" onClick={() => setSymbolDialog(true)} title={NOBITEX_SYMBOLS[symbol] ? "Nobitex live OHLC" : "Symbol Search"}><Search size={16}/><b>{symbol}{NOBITEX_SYMBOLS[symbol] ? (liveLoading ? " · loading" : " · LIVE") : ""}</b></button>
+      <button className="tv-btn tv-symbol" onClick={() => setSymbolDialog(true)} title={NOBITEX_SYMBOLS[symbol] ? "Nobitex live OHLC" : "Symbol Search"}><Search size={16}/><b>{symbol}{NOBITEX_SYMBOLS[symbol] ? (liveLoading ? " · loading" : liveConnected ? " · LIVE" : " · offline") : ""}</b></button>
       <button className="tv-btn mobile-sidebar-toggle" title="Open panels" aria-label="Open watchlist and panels" aria-expanded={mobilePanelOpen} onClick={() => { setPanel(p => p ?? 'watchlist'); setMobilePanelOpen(v => !v) }}><List size={17}/></button>
       <div className="tv-menu-wrap" data-menu>
         <button className={'tv-btn' + (compareSymbol ? ' sel' : '')} title="Compare or Add Symbol" aria-haspopup="menu" onClick={() => { if (!isDemo) { setNotice('مقایسه فقط روی نمادهای نمونه کار می‌کند؛ از Settings گزینه‌ی Reset to sample data را بزن.'); return } toggleMenu('compare') }}><Plus size={18}/></button>
