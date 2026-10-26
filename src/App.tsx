@@ -867,7 +867,7 @@ function App() {
   const tfButtons = QUICK_TF.includes(timeframe) ? QUICK_TF : [timeframe, ...QUICK_TF]
   const ActiveTypeIcon = CHART_TYPES.find(c => c.id === chartType)!.Icon
   const filtered = SYMBOLS.filter(s => !query.trim() || s.symbol.includes(query.trim().toUpperCase()) || s.name.toUpperCase().includes(query.trim().toUpperCase()))
-  const groups = Array.from(new Set(SYMBOLS.map(s => s.group)))
+  const groups = Array.from(new Set(SYMBOLS.map(s => s.group))).sort((a, b) => a === 'NOBITEX' ? -1 : b === 'NOBITEX' ? 1 : 0)
   const tradeRows = [...trades, ...(testResults ?? [])]
   const sp = SPEEDS[replay.speed]
 
@@ -1137,14 +1137,15 @@ function App() {
                   <button role="menuitem" className="tv-item" onClick={() => { setMenu(null); setSymbolDialog(true) }}><Plus size={14}/><span>Add symbol…</span></button></div>}
               </div></div>
             <div className="tv-wl-cols"><span>Symbol</span><span>Last</span><span>Chg</span><span>Chg%</span></div>
-            <div className="tv-wl-list">{groups.map(g => <div key={g}><div className="tv-wl-group"><ChevronDown size={12}/>{g}</div>
+            <div className="tv-wl-list">{groups.map(g => <div key={g}><div className="tv-wl-group"><ChevronDown size={12}/>{g === 'NOBITEX' ? 'CRYPTO · LIVE NOBITEX' : g}</div>
               {SYMBOLS.filter(s => s.group === g).sort((a, b) => { const pct = (x: SymbolInfo) => x.symbol === symbol ? activeStats.pct : dayStats(demos[x.symbol], demos[x.symbol].length - 1, 96).pct; return wlSort === 'symbol' ? a.symbol.localeCompare(b.symbol) : wlSort === 'change' ? pct(b) - pct(a) : 0 }).map(s => {
                 const active = s.symbol === symbol
-                const st = active ? activeStats : dayStats(demos[s.symbol], demos[s.symbol].length - 1, 96)
-                const cls = st.chg >= 0 ? 'up' : 'down'
+                const liveOnly = Boolean(NOBITEX_SYMBOLS[s.symbol])
+                const st = active ? (liveOnly && !candles.length ? null : activeStats) : liveOnly ? null : dayStats(demos[s.symbol], demos[s.symbol].length - 1, 96)
+                const cls = st && st.chg >= 0 ? 'up' : 'down'
                 return <button key={s.symbol} className={'tv-wl-row' + (active ? ' active' : '')} onClick={() => selectSymbol(s.symbol)}>
                   <span className="tv-wl-sym"><i style={{ background: s.color }}>{s.symbol[0]}</i><b>{s.symbol}</b></span>
-                  <span>{fmt(st.last, s.digits)}</span><span className={cls}>{sgn(st.chg)}{fmt(Math.abs(st.chg), s.digits)}</span><span className={cls}>{sgn(st.pct)}{Math.abs(st.pct).toFixed(2)}%</span></button>
+                  <span>{st ? fmt(st.last, s.digits) : '—'}</span><span className={st ? cls : ''}>{st ? `${sgn(st.chg)}${fmt(Math.abs(st.chg), s.digits)}` : '—'}</span><span className={st ? cls : ''}>{st ? `${sgn(st.pct)}${Math.abs(st.pct).toFixed(2)}%` : '—'}</span></button>
               })}</div>)}</div>
             <div className="tv-wl-detail">
               <div className="tv-wl-detail-head"><i style={{ background: info.color }}>{symbol[0]}</i><div><b>{symbol}</b><small>{info.name}</small></div></div>
@@ -1153,7 +1154,7 @@ function App() {
                 <div><span>Open</span><b>{fmt(bar?.open ?? 0, digits)}</b></div><div><span>High</span><b>{fmt(bar?.high ?? 0, digits)}</b></div>
                 <div><span>Low</span><b>{fmt(bar?.low ?? 0, digits)}</b></div><div><span>Prev close</span><b>{fmt(barPrev?.close ?? bar?.open ?? 0, digits)}</b></div>
               </div>
-              <p className="tv-wl-note">قیمت‌ها نمونه‌اند مگر اینکه CSV خودت را وارد کنی.</p>
+              <p className="tv-wl-note">{NOBITEX_SYMBOLS[symbol] ? (liveConnected ? 'داده زنده نوبیتکس؛ به‌روزرسانی تقریباً هر ۶۰ ثانیه.' : liveLoading ? 'در حال دریافت کندل‌های زنده از نوبیتکس…' : 'اتصال زنده برقرار نیست؛ نماد را دوباره انتخاب کن تا دریافت داده امتحان شود.') : 'قیمت‌ها نمونه‌اند مگر اینکه CSV خودت را وارد کنی.'}</p>
             </div>
           </>}
           {panel === 'alerts' && <><div className="tv-panel-head"><span className="tv-panel-title">Alerts ({priceAlerts.filter(a => a.active).length})</span><div className="tv-spacer"/><button className="tv-btn tv-narrow" title="Create alert" onClick={() => { setAlertPrice(String(last?.close ?? '')); setShowAlertDialog(true) }}><Plus size={17}/></button></div>
