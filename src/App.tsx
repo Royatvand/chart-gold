@@ -88,6 +88,7 @@ function App() {
   const [compareSymbol, setCompareSymbol] = useState<string | null>(null)
   const [wlSort, setWlSort] = useState<'default' | 'symbol' | 'change'>('default')
   const [symbol, setSymbol] = useState('XAUUSD')
+  const activeSymbolRef = useRef(symbol); activeSymbolRef.current = symbol
   const [timeframe, setTimeframe] = useState('15m')
   const [chartType, setChartType] = useState<ChartType>('candles')
   const [visibleCount, setVisibleCount] = useState(candles.length)
@@ -808,6 +809,7 @@ function App() {
       })
       const payload = await response.json() as { error?: string; pathname?: string; rawCandles?: number; chartBars?: number; candles?: Candle[]; trades?: ClosedTrade[]; summary?: { totalTrades: number; wins: number; losses: number; netR: number; grossWin: number; grossLoss: number; profitFactor: number | null; winRate: number } }
       if (!response.ok || !payload.candles || !payload.summary || !payload.trades) throw new Error(payload.error || 'Could not connect existing Blob CSV')
+      if (NOBITEX_SYMBOLS[activeSymbolRef.current]) return
       const name = (payload.pathname || 'XAUUSD.csv').split('/').pop() || 'XAUUSD.csv'
       setCandles(payload.candles); setFileName(name); setVisibleCount(payload.candles.length)
       setStoredBlob({ pathname: payload.pathname || name, size: 0, url: '' })
