@@ -18,6 +18,8 @@ export const SYMBOLS: SymbolInfo[] = [
   { symbol: 'ETHUSD', name: 'Ethereum / U.S. Dollar', group: 'CRYPTO', base: 3520, digits: 2, seed: 113, color: '#8c9eff' },
   { symbol: 'BTCIRT', name: 'Bitcoin / Iranian Toman', group: 'NOBITEX', base: 0, digits: 0, seed: 127, color: '#f7931a' },
   { symbol: 'ETHIRT', name: 'Ethereum / Iranian Toman', group: 'NOBITEX', base: 0, digits: 0, seed: 131, color: '#8c9eff' },
+  { symbol: 'BTCUSDT', name: 'Bitcoin / Tether', group: 'BINANCE', base: 0, digits: 2, seed: 179, color: '#f7931a' },
+  { symbol: 'ETHUSDT', name: 'Ethereum / Tether', group: 'BINANCE', base: 0, digits: 2, seed: 181, color: '#8c9eff' },
   { symbol: 'USDTIRT', name: 'Tether / Iranian Toman', group: 'NOBITEX', base: 0, digits: 0, seed: 137, color: '#26a69a' },
   { symbol: 'LTCIRT', name: 'Litecoin / Iranian Toman', group: 'NOBITEX', base: 0, digits: 0, seed: 139, color: '#9ca3af' },
   { symbol: 'XRPIRT', name: 'XRP / Iranian Toman', group: 'NOBITEX', base: 0, digits: 0, seed: 149, color: '#78909c' },
@@ -26,8 +28,6 @@ export const SYMBOLS: SymbolInfo[] = [
   { symbol: 'ADAIRT', name: 'Cardano / Iranian Toman', group: 'NOBITEX', base: 0, digits: 0, seed: 163, color: '#2962ff' },
   { symbol: 'BNBIRT', name: 'BNB / Iranian Toman', group: 'NOBITEX', base: 0, digits: 0, seed: 167, color: '#f0b90b' },
   { symbol: 'SOLIRT', name: 'Solana / Iranian Toman', group: 'NOBITEX', base: 0, digits: 0, seed: 173, color: '#8c9eff' },
-  { symbol: 'BTCUSDT', name: 'Bitcoin / Tether', group: 'NOBITEX', base: 0, digits: 2, seed: 179, color: '#f7931a' },
-  { symbol: 'ETHUSDT', name: 'Ethereum / Tether', group: 'NOBITEX', base: 0, digits: 2, seed: 181, color: '#8c9eff' },
   { symbol: 'USOIL', name: 'Crude Oil', group: 'ENERGIES', base: 72.18, digits: 2, seed: 127, color: '#78909c' },
   { symbol: 'NAS100', name: 'Nasdaq 100', group: 'INDICES', base: 19850, digits: 2, seed: 139, color: '#42a5f5' },
 ]
@@ -44,6 +44,10 @@ export const NOBITEX_SYMBOLS: Record<string, string> = {
   ADAIRT: 'ADAIRT',
   BNBIRT: 'BNBIRT',
   SOLIRT: 'SOLIRT',
+}
+
+// These symbols use real OHLC candles from Binance Spot public market-data API.
+export const BINANCE_SYMBOLS: Record<string, string> = {
   BTCUSDT: 'BTCUSDT',
   ETHUSDT: 'ETHUSDT',
 }
